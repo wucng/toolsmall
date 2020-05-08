@@ -5,8 +5,9 @@ import os
 import datetime
 import logging.config
 
-def init():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def init(filedir:os.pardir):
+    # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.abspath(filedir)
     LOG_DIR = os.path.join(BASE_DIR, "logs")
     LOG_FILE = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(os.getpid()) + ".log"
 
@@ -55,14 +56,14 @@ def init():
     logging.config.dictConfig(LOGGING)
 
 
-def get_logger(file):
-    init()
-    log = logging.getLogger(file)
+def get_logger(filedir:os.pardir,name="detection"):
+    init(filedir)
+    log = logging.getLogger(name)
     return log
 
 
 if __name__ == "__main__":
-    log = get_logger(__file__)
+    log = get_logger(filedir="./")
 
     log.info("")
     log.warn("")
