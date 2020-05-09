@@ -4,6 +4,7 @@ except:
     from .nms.nms import nms2 as nms
 from .visual.vis import vis_rect
 import torch
+from torch import nn
 
 def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
     # for idx,prediction in enumerate(detections):
@@ -153,3 +154,42 @@ def x1y1x2y22xywh(boxes):
     wh=boxes[...,2:]-boxes[...,:2]
 
     return torch.cat((xy,wh),-1)
+
+
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+    def forward(self, x):
+        return torch.flatten(x,1)
+
+def weights_init_fpn(model):
+    # weight initialization
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            # if m.bias is not None:
+            #     nn.init.zeros_(m.bias)
+            # c2_msra_fill(m)
+            c2_xavier_fill(m)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.ones_(m.weight)
+            nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
+def weights_init_rpn(model):
+    # weight initialization
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            nn.init.normal_(m.weight, std=0.01)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.ones_(m.weight)
+            nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
