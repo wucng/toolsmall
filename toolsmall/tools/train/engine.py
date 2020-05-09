@@ -52,11 +52,13 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
-def train_one_epoch2(model,loss_func,optimizer, data_loader, device, epoch, print_freq,use_cuda):
+def train_one_epoch2(model, optimizer, data_loader, device, epoch, print_freq,writer,batch_size):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
+
+    num_trains = len(data_loader.dataset)
 
     lr_scheduler = None
     if epoch == 0:
@@ -65,16 +67,11 @@ def train_one_epoch2(model,loss_func,optimizer, data_loader, device, epoch, prin
 
         lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
 
-    for images, targets in metric_logger.log_every(data_loader, print_freq, header):
-        images = torch.stack(images, 0)
-        if use_cuda:
-            images = images.to(device)
+    for idx,(images, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        images = list(image.to(device) for image in images)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        output = model(images)
-
-        loss_dict = loss_func(output, targets)
+        loss_dict = model(images, targets)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -98,6 +95,11 @@ def train_one_epoch2(model,loss_func,optimizer, data_loader, device, epoch, prin
 
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+
+        # 记录到TensorBoard
+        writer.add_scalar('total_loss', losses.item(), epoch * num_trains // batch_size + idx)
+        for key, loss in loss_dict.items():
+            writer.add_scalar(key, loss.item(), epoch * num_trains // batch_size + idx)
 
 
 def _get_iou_types(model):
@@ -156,7 +158,7 @@ def evaluate(model, data_loader, device):
 
 
 @torch.no_grad()
-def evaluate2(model,loss_func, data_loader, device):
+def evaluate2(model,loss_func, data_loader, device,mulScale):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -170,8 +172,11 @@ def evaluate2(model,loss_func, data_loader, device):
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
     for image, targets in metric_logger.log_every(data_loader, 100, header):
-        image = torch.stack(image, 0)
-        image = image.to(device)
+        if not mulScale:
+            image = torch.stack(image, 0)
+            image = image.to(device)
+        else:
+            image = list(img.to(device) for img in image)
 
         # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         targets = [{k: v.to(device) for k, v in targ.items() if k not in ["boxes","labels"]} for targ in targets]
@@ -180,7 +185,10 @@ def evaluate2(model,loss_func, data_loader, device):
         torch.cuda.synchronize()
         model_time = time.time()
 
-        output = model(image)
+        if mulScale:
+            output = [model(img.unsqueeze(0)) for img in image]
+        else:
+            output = model(image)
         outputs = loss_func(output, targets)
 
         # outputs = [{k: torch.stack(v).to(cpu_device) for k, v in t.items()} for t in outputs]

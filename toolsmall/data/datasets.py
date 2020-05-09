@@ -107,6 +107,7 @@ class PennFudanDataset(object):
         target["image_id"] = image_id
         target["area"] = area
         target["iscrowd"] = iscrowd
+        target["path"] = img_path
 
         if self.transforms is not None:
             img, target = self.transforms(img, target)
@@ -217,6 +218,7 @@ class PascalVOCDataset(VisionDataset):
         target["image_id"] = image_id
         target["area"] = area
         target["iscrowd"] = iscrowd
+        target["path"] = self.images[index]
 
         if self.transforms is not None:
             img, target = self.transforms(img, target)

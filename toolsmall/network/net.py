@@ -9,7 +9,7 @@ from torch.nn import functional as F
 __all__=["Backbone","ResnetFpn","RPNHead","TwoMLPHead","FastRCNNPredictor"]
 
 class Backbone(nn.Module):
-    def __init__(self,model_name,pretrained=False):
+    def __init__(self,model_name,pretrained=False,nofreeze_at=["res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
         super(Backbone, self).__init__()
         model_dict = {'resnet18': 512,
                       'resnet34': 512,
@@ -43,7 +43,12 @@ class Backbone(nn.Module):
 
         # freeze layers (layer1)
         for name, parameter in self.backbone.named_parameters():
-            if 'res3' not in name and 'res4' not in name and 'res5' not in name:
+            # if 'res3' not in name and 'res4' not in name and 'res5' not in name:
+            flag = True
+            for nofreezename in nofreeze_at:
+                if nofreezename in name:
+                    flag = False
+            if flag:
                 parameter.requires_grad_(False)
 
     def forward(self,x):
@@ -102,9 +107,10 @@ class FPNNet(nn.Module):
         return outs
 
 class ResnetFpn(nn.Module):
-    def __init__(self,model_name,pretrained=False,out_channels=256,useFPN=False):
+    def __init__(self,model_name,pretrained=False,nofreeze_at=["res2","res3","res4","res5"],
+                 out_channels=256,useFPN=False):
         super(ResnetFpn,self).__init__()
-        self.backbone = Backbone(model_name,pretrained)
+        self.backbone = Backbone(model_name,pretrained,nofreeze_at)
         self.useFPN = useFPN
         if self.useFPN:
             self.out_channels = out_channels
@@ -161,6 +167,7 @@ class RPNHead(nn.Module):
             logits.append(self.cls_logits(t))
             bbox_reg.append(self.bbox_pred(t))
         return logits, bbox_reg
+
 
 class TwoMLPHead(nn.Module):
     """
@@ -247,9 +254,8 @@ class MaskRCNNPredictor(nn.Sequential):
             # elif "bias" in name:
             #     nn.init.constant_(param, 0)
 
-
 if __name__=="__main__":
     x = torch.rand([1,3,96,96])
-    net = ResnetFpn("resnet18",useFPN=True)
+    net = ResnetFpn("resnet18",useFPN=False)
     pred = net(x)
     print()
