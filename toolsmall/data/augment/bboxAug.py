@@ -14,12 +14,26 @@ import random
 
 from torchvision.transforms import functional as F
 from torch.nn import functional as F2
-from .uils import *
-
-__all__ = ["Compose","ToTensor","Normalize","Pad","Resize","RandomHorizontalFlip",
-           "RandomBrightness","RandomSaturation","RandomBlur","RandomHue"]
+try:
+    from .uils import *
+except:
+    from uils import *
 
 # ----------------------------------------------------------------------------------
+class Augment(object):
+    def __init__(self,advanced=False):
+        self.advanced = advanced
+    def __call__(self, image, target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+        image, target=simple_agu(image,target,np.random.randint(0, int(1e5), 1)[0],self.advanced)
+        return image,target
+
 class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms
@@ -86,19 +100,12 @@ class Pad(object):
         h, w = img.shape[:2]
         if "boxes" in target:
             boxes = target["boxes"]
-        if "priorBox" in target:
-            priorBox = target["priorBox"]
         if h >= w:
             diff = h - w
             pad_list = [[0, 0], [diff // 2, diff - diff // 2], [0, 0]]
             if "boxes" in target:
                 boxes = [[b[0] + diff // 2, b[1], b[2] + diff - diff // 2, b[3]] for b in boxes]
                 boxes = torch.as_tensor(boxes,dtype=torch.float32)
-
-            if "priorBox" in target:
-                priorBox = [[b[0] + diff // 2, b[1], b[2] + diff - diff // 2, b[3]] for b in priorBox]
-                priorBox = torch.as_tensor(priorBox,dtype=torch.float32)
-
 
         else:
             diff = w - h
@@ -107,17 +114,10 @@ class Pad(object):
                 boxes = [[b[0], b[1] + diff // 2, b[2], b[3] + diff - diff // 2] for b in boxes]
                 boxes = torch.as_tensor(boxes,dtype=torch.float32)
 
-            if "priorBox" in target:
-                priorBox = [[b[0], b[1] + diff // 2, b[2], b[3] + diff - diff // 2] for b in priorBox]
-                priorBox = torch.as_tensor(priorBox,dtype=torch.float32)
-
         img = np.pad(img, pad_list, mode=self.mode, constant_values=self.value)
 
         if "boxes" in target:
             target["boxes"] = boxes
-
-        if "priorBox" in target:
-            target["priorBox"] = priorBox
 
         return PIL.Image.fromarray(img),target
 
@@ -158,14 +158,6 @@ class Resize(object):
             boxes = self.resize_boxes(boxes,original_size,self.size)
 
             target["boxes"] = boxes
-
-        if "priorBox" in target:
-            priorBox = target["priorBox"]
-
-            priorBox = self.resize_boxes(priorBox,original_size,self.size)
-
-            target["priorBox"] = priorBox
-
         return PIL.Image.fromarray(img), target
 
     def resize_boxes(self,boxes, original_size, new_size):
@@ -220,10 +212,6 @@ class Resize2(object):
             boxes = target["boxes"]
             boxes = Resize().resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
             target["boxes"] = boxes
-        if "priorBox" in target:
-            priorBox = target["priorBox"]
-            priorBox = Resize().resize_boxes(priorBox, (img_h, img_w), (new_h,new_w))
-            target["priorBox"] = priorBox
 
         # pad
         img,target = Pad().pad_img(img,target)
@@ -332,21 +320,14 @@ class RandomHorizontalFlip(object):
         img_center = np.hstack((img_center, img_center))
         img_center = torch.as_tensor(img_center,dtype=torch.float32)
         bboxes = target["boxes"]
-        if "priorBox" in target:
-            priorBox = target["priorBox"]
         if random.random() < self.p:
             img = img[:, ::-1, :]
             bboxes[:, [0, 2]] += 2 * (img_center[[0, 2]] - bboxes[:, [0, 2]])
+
             box_w = abs(bboxes[:, 0] - bboxes[:, 2])
+
             bboxes[:, 0] -= box_w
             bboxes[:, 2] += box_w
-            if "priorBox" in target:
-                priorBox[:, [0, 2]] += 2 * (img_center[[0, 2]] - priorBox[:, [0, 2]])
-                box_w = abs(priorBox[:, 0] - priorBox[:, 2])
-                priorBox[:, 0] -= box_w
-                priorBox[:, 2] += box_w
-
-                target["priorBox"] = priorBox
 
             if "masks" in target:
                 target["masks"] = target["masks"].flip(-1)
