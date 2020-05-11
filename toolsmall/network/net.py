@@ -48,6 +48,7 @@ class Backbone(nn.Module):
             for nofreezename in nofreeze_at:
                 if nofreezename in name:
                     flag = False
+                    break
             if flag:
                 parameter.requires_grad_(False)
 

@@ -1,7 +1,9 @@
+flag=False
 try:
     from torchvision.ops.boxes import batched_nms as nms
+    flag=True
 except:
-    from .nms.nms import nms2 as nms
+    from .nms.nms import nms2
 from .visual.vis import vis_rect
 import torch
 from torch import nn
@@ -22,25 +24,31 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
         scores = prediction["scores"][ms]
         labels = prediction["labels"][ms]
         boxes = prediction["boxes"][ms]
-        unique_labels = labels.unique()
-        for c in unique_labels:
-            if c in filter_labels: continue
+        if flag:
+            keep = nms(boxes, scores,labels,nms_thres)
+            last_scores.extend(scores[keep])
+            last_labels.extend(labels[keep])
+            last_boxes.extend(boxes[keep])
+        else:
+            unique_labels = labels.unique()
+            for c in unique_labels:
+                if c in filter_labels: continue
 
-            # Get the detections with the particular class
-            temp = labels == c
-            _scores = scores[temp]
-            _labels = labels[temp]
-            _boxes = boxes[temp]
-            if len(_labels) > 1:
-                keep = nms(_boxes, _scores, nms_thres)
-                last_scores.extend(_scores[keep])
-                last_labels.extend(_labels[keep])
-                last_boxes.extend(_boxes[keep])
+                # Get the detections with the particular class
+                temp = labels == c
+                _scores = scores[temp]
+                _labels = labels[temp]
+                _boxes = boxes[temp]
+                if len(_labels) > 1:
+                    keep = nms2(_boxes, _scores, nms_thres)
+                    last_scores.extend(_scores[keep])
+                    last_labels.extend(_labels[keep])
+                    last_boxes.extend(_boxes[keep])
 
-            else:
-                last_scores.extend(_scores)
-                last_labels.extend(_labels)
-                last_boxes.extend(_boxes)
+                else:
+                    last_scores.extend(_scores)
+                    last_labels.extend(_labels)
+                    last_boxes.extend(_boxes)
 
         if len(last_labels) == 0:
             return None

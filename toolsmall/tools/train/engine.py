@@ -52,7 +52,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
-def train_one_epoch2(model, optimizer, data_loader, device, epoch, print_freq,writer,batch_size):
+def train_one_epoch2(model,loss_func, optimizer, data_loader, device, epoch, print_freq,writer,batch_size):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -68,10 +68,14 @@ def train_one_epoch2(model, optimizer, data_loader, device, epoch, print_freq,wr
         lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
 
     for idx,(images, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
-        images = list(image.to(device) for image in images)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        # images = list(image.to(device) for image in images)
+        images = torch.stack(images, 0).to(device)
+        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        targets = [{k: v.to(device) for k, v in targ.items() if k not in ["path"]} for targ in targets]
 
-        loss_dict = model(images, targets)
+        # loss_dict = model(images, targets)
+        output = model(images)
+        loss_dict = loss_func(output, targets, True)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -158,7 +162,7 @@ def evaluate(model, data_loader, device):
 
 
 @torch.no_grad()
-def evaluate2(model,loss_func, data_loader, device,mulScale):
+def evaluate2(model,loss_func, data_loader, device):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -172,24 +176,18 @@ def evaluate2(model,loss_func, data_loader, device,mulScale):
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
     for image, targets in metric_logger.log_every(data_loader, 100, header):
-        if not mulScale:
-            image = torch.stack(image, 0)
-            image = image.to(device)
-        else:
-            image = list(img.to(device) for img in image)
+        image = torch.stack(image, 0)
+        image = image.to(device)
 
         # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        targets = [{k: v.to(device) for k, v in targ.items() if k not in ["boxes","labels"]} for targ in targets]
+        new_targets = [{k: v.to(device) for k, v in targ.items() if k not in ["boxes","labels","path"]} for targ in targets]
         # targets = [{k: v.to(device) for k, v in targ.items()} for targ in targets]
 
         torch.cuda.synchronize()
         model_time = time.time()
 
-        if mulScale:
-            output = [model(img.unsqueeze(0)) for img in image]
-        else:
-            output = model(image)
-        outputs = loss_func(output, targets)
+        output = model(image)
+        outputs = loss_func(output, new_targets)
 
         # outputs = [{k: torch.stack(v).to(cpu_device) for k, v in t.items()} for t in outputs]
         outputs_1 = []
@@ -199,8 +197,8 @@ def evaluate2(model,loss_func, data_loader, device,mulScale):
                                   "labels":torch.as_tensor([0],dtype=torch.long),
                                   "scores":torch.as_tensor([0.])})
             else:
-                for k, v in t.items():
-                    outputs_1.append({k: torch.stack(v).to(cpu_device)})
+                _dict={k: torch.stack(v).to(cpu_device) for k, v in t.items()}
+                outputs_1.append(_dict)
         outputs = outputs_1
         del outputs_1
 
