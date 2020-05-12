@@ -3,6 +3,8 @@ toolsmall
 
 # install
 ```py
+!pip install git+https://github.com/facebookresearch/fvcore.git
+
 !pip install -r requirements.txt -i https://pypi.doubanio.com/simple
 
 !pip install https://github.com/wucng/toolsmall/archive/master.zip

@@ -13,7 +13,7 @@ from torch.utils.data import Dataset,DataLoader
 from torchvision.datasets.vision import VisionDataset
 from torchvision.datasets.voc import *
 
-__all__=["glob_format","PennFudanDataset","PascalVOCDataset","ValidDataset"]
+__all__=["glob_format","PennFudanDataset","PascalVOCDataset","PascalVOCDataset","ValidDataset"]
 
 def glob_format(path,base_name = False):
     #print('--------pid:%d start--------------' % (os.getpid()))
@@ -117,7 +117,7 @@ class PennFudanDataset(object):
     def __len__(self):
         return len(self.imgs)
 
-class PascalVOCDataset(VisionDataset):
+class PascalVOCDataset2(VisionDataset):
     """
     http://host.robots.ox.ac.uk/pascal/VOC/
     """
@@ -130,7 +130,7 @@ class PascalVOCDataset(VisionDataset):
                  transform=None,
                  target_transform=None,
                  transforms=None):
-        super(PascalVOCDataset, self).__init__(root, transforms, transform, target_transform)
+        super(PascalVOCDataset2, self).__init__(root, transforms, transform, target_transform)
         self.classes = classes
         self.year = year
         self.url = DATASET_YEAR_DICT[year]['url']
@@ -246,6 +246,82 @@ class PascalVOCDataset(VisionDataset):
             if not children:
                 voc_dict[node.tag] = text
         return voc_dict
+
+class PascalVOCDataset(Dataset):
+    """
+    http://host.robots.ox.ac.uk/pascal/VOC/
+    """
+    def __init__(self, root,year=2007,transforms=None,classes=[]):
+        # self.root = os.path.join(root,"VOCdevkit","VOC%s"%(year))
+        self.root = os.path.join(root,"VOC%s"%(year))
+        self.transforms = transforms
+        self.classes=classes
+        self.annotations = self.change2csv()
+
+    def parse_xml(self,xml):
+        in_file = open(xml)
+        tree = ET.parse(in_file)
+        root = tree.getroot()
+
+        boxes = []
+        labels = []
+        for obj in root.iter('object'):
+            difficult = obj.find('difficult').text
+            cls = obj.find('name').text
+            if cls not in self.classes:# or int(difficult)==1:
+                continue
+            cls_id = self.classes.index(cls)  # 这里不包含背景，如果要包含背景 只需+1, 0默认为背景
+            xmlbox = obj.find('bndbox')
+            b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text),
+                 int(xmlbox.find('ymax').text))
+            boxes.append(b)
+            labels.append(cls_id)
+
+        return boxes,labels
+
+    # 将注释文件转成csv格式：xxx/xxx.jpg x1,y1,x2,y2,label,...
+    def change2csv(self):
+        annotations = []
+        xml_files=list(sorted(glob_format(os.path.join(self.root, "Annotations"))))
+
+        for idx,xml in enumerate(xml_files):
+            img_path = xml.replace("Annotations", "JPEGImages").replace(".xml", ".jpg")
+            boxes,labels=self.parse_xml(xml)
+            if len(labels)>0:
+                annotations.append({"image":img_path,"boxes":boxes,"labels":labels})
+
+        return annotations
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def _shuffle(self,seed=1):
+        random.seed(seed)
+        random.shuffle(self.annotations)
+
+    def __getitem__(self, idx):
+        annotations= self.annotations[idx]
+        img_path = annotations["image"]
+        img = Image.open(img_path).convert("RGB")
+        boxes=annotations["boxes"]
+        labels=annotations["labels"]
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        iscrowd = torch.zeros_like(labels,dtype=torch.float32)
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+
+        target = {}
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["image_id"] = torch.tensor([idx])
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+
+        if self.transforms is not None:
+            img, target = self.transforms(img, target)
+
+        return img, target
+
 
 class ValidDataset(Dataset):
     def __init__(self, root, transforms=None):
