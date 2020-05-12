@@ -316,6 +316,7 @@ class PascalVOCDataset(Dataset):
         target["image_id"] = torch.tensor([idx])
         target["area"] = area
         target["iscrowd"] = iscrowd
+        target["path"] = img_path
 
         if self.transforms is not None:
             img, target = self.transforms(img, target)
