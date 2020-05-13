@@ -31,7 +31,14 @@ class Augment(object):
                 image: PIL image
                 target: Tensor
         """
-        image, target=simple_agu(image,target,np.random.randint(0, int(1e5), 1)[0],self.advanced)
+        try:
+            _image, _target=simple_agu(image.copy(),target.copy(),np.random.randint(0, int(1e5), 1)[0],self.advanced)
+            if len(_target["boxes"])>0:
+                image, target=_image, _target
+            del _image
+            del _target
+        except:
+            pass
         return image,target
 
 class Compose(object):
@@ -219,9 +226,10 @@ class Resize2(object):
         return img,target
 
 class RandomDrop(object):
-    def __init__(self,cropsize=(0.1,0.1)):
+    def __init__(self,p=0.5,cropsize=(0.1,0.1)):
         """cropsize:从原图裁剪掉的像素值范围比例"""
         self.cropsize = cropsize
+        self.p = p
 
     def __call__(self,img,target):
         """
@@ -231,33 +239,47 @@ class RandomDrop(object):
                 image: PIL image
                 target: Tensor
         """
-        img = np.asarray(img)
-        img_h, img_w = img.shape[:2]
-        y1,x1 = random.randint(0,int(self.cropsize[0]*img_h)),random.randint(0,int(self.cropsize[1]*img_w)) # 上面与左边裁剪的像素个数
-        y2,x2 = random.randint(0,int(self.cropsize[0]*img_h)),random.randint(0,int(self.cropsize[1]*img_w)) # 下面与右边裁剪的像素个数
+        try:
+            _img, _target = self.do(img.copy(),target.copy())
+            if len(_target["boxes"])>0:
+                img, target=_img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
 
-        # 裁剪后的图像
-        img = img[y1:img_h-y2,x1:img_w-x2,:]
-        new_h, new_w = img.shape[:2]
+    def do(self,img,target):
+        if random.random() < self.p:
+            img = np.asarray(img)
+            img_h, img_w = img.shape[:2]
+            y1,x1 = random.randint(0,int(self.cropsize[0]*img_h)),random.randint(0,int(self.cropsize[1]*img_w)) # 上面与左边裁剪的像素个数
+            y2,x2 = random.randint(0,int(self.cropsize[0]*img_h)),random.randint(0,int(self.cropsize[1]*img_w)) # 下面与右边裁剪的像素个数
 
-        # boxes也需做想要的裁剪处理
-        boxes = target["boxes"]
-        labels = target["labels"]
-        new_boxes = []
-        new_labels = []
-        for i,b in enumerate(boxes):
-            if b[2]-x1 <=0 or b[3]-y1 <=0: # box已经在裁剪图像的外
-                continue
-            else:
-                new_boxes.append([max(0,b[0]-x1), max(0,b[1]-y1), min(new_w,b[2]-x1), min(new_h,b[3]-y1)])
-                new_labels.append(labels[i])
+            # 裁剪后的图像
+            img = img[y1:img_h-y2,x1:img_w-x2,:]
+            new_h, new_w = img.shape[:2]
 
-        new_boxes = torch.as_tensor(new_boxes)
-        new_labels = torch.as_tensor(new_labels)
-        target["boxes"] = new_boxes
-        target["labels"] = new_labels
+            # boxes也需做想要的裁剪处理
+            boxes = target["boxes"]
+            labels = target["labels"]
+            new_boxes = []
+            new_labels = []
+            for i,b in enumerate(boxes):
+                if b[2]-x1 <=0 or b[3]-y1 <=0: # box已经在裁剪图像的外
+                    continue
+                else:
+                    new_boxes.append([max(0,b[0]-x1), max(0,b[1]-y1), min(new_w,b[2]-x1), min(new_h,b[3]-y1)])
+                    new_labels.append(labels[i])
 
-        return PIL.Image.fromarray(img),target
+            new_boxes = torch.as_tensor(new_boxes)
+            new_labels = torch.as_tensor(new_labels)
+            target["boxes"] = new_boxes
+            target["labels"] = new_labels
+
+            return PIL.Image.fromarray(img),target
+        else:
+            return img,target
 
 class RandomCrop(object):
     def __init__(self,p=0.5):
@@ -271,6 +293,17 @@ class RandomCrop(object):
                 image: PIL image
                 target: Tensor
         """
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             bgr = np.asarray(img)
             boxes = target["boxes"]  # .numpy()
@@ -307,20 +340,34 @@ class RandomCrop(object):
 
             target["boxes"] = boxes_in
             target["labels"] = labels_in
-            img = PIL.Image.fromarray(img_croped)
-        return img, target
+
+            return PIL.Image.fromarray(img_croped),target
+        else:
+            return img,target
 
 class RandomHorizontalFlip(object):
     def __init__(self, p=0.5):
         self.p = p
 
     def __call__(self, img,target):
-        img = np.asarray(img)
-        img_center = np.array(img.shape[:2])[::-1] / 2
-        img_center = np.hstack((img_center, img_center))
-        img_center = torch.as_tensor(img_center,dtype=torch.float32)
-        bboxes = target["boxes"]
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
+            img = np.asarray(img)
+            img_center = np.array(img.shape[:2])[::-1] / 2
+            img_center = np.hstack((img_center, img_center))
+            img_center = torch.as_tensor(img_center,dtype=torch.float32)
+            bboxes = target["boxes"]
+
             img = img[:, ::-1, :]
             bboxes[:, [0, 2]] += 2 * (img_center[[0, 2]] - bboxes[:, [0, 2]])
 
@@ -332,21 +379,35 @@ class RandomHorizontalFlip(object):
             if "masks" in target:
                 target["masks"] = target["masks"].flip(-1)
 
-        target["boxes"]=bboxes
+            target["boxes"]=bboxes
 
-        return PIL.Image.fromarray(img), target
+            return PIL.Image.fromarray(img), target
+        else:
+            return img,target
 
 class RandomVerticallyFlip(object):
     def __init__(self, p=0.5):
         self.p = p
 
     def __call__(self, img,target):
-        img = np.asarray(img)
-        img_center = np.array(img.shape[:2])[::-1] / 2
-        img_center = np.hstack((img_center, img_center))
-        img_center = torch.as_tensor(img_center,dtype=torch.float32)
-        bboxes = target["boxes"]
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
+            img = np.asarray(img)
+            img_center = np.array(img.shape[:2])[::-1] / 2
+            img_center = np.hstack((img_center, img_center))
+            img_center = torch.as_tensor(img_center,dtype=torch.float32)
+            bboxes = target["boxes"]
+
             img = img[::-1, :, :]
             bboxes[:, [1, 3]] += 2 * (img_center[[1, 3]] - bboxes[:, [1, 3]])
 
@@ -355,13 +416,16 @@ class RandomVerticallyFlip(object):
             bboxes[:, 1] -= box_h
             bboxes[:, 3] += box_h
 
-        target["boxes"]=bboxes
+            target["boxes"]=bboxes
 
-        return PIL.Image.fromarray(img), target
+            return PIL.Image.fromarray(img), target
+        else:
+            return img, target
 
 class RandomScale(object):
-    def __init__(self, scale=0.2, diff=False):
+    def __init__(self, p = 0.5,scale=0.2, diff=False):
         self.scale = scale
+        self.p = p
 
         if type(self.scale) == tuple:
             assert len(self.scale) == 2, "Invalid range"
@@ -374,39 +438,51 @@ class RandomScale(object):
         self.diff = diff
 
     def __call__(self, img, target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
 
-        # Chose a random digit to scale by
-        img = np.asarray(img)
-        bboxes = target["boxes"].numpy()
-        img_shape = img.shape
+        except:
+            pass
+        return img, target
 
-        if self.diff:
-            scale_x = random.uniform(*self.scale)
-            scale_y = random.uniform(*self.scale)
-        else:
-            scale_x = random.uniform(*self.scale)
-            scale_y = scale_x
+    def do(self,img,target):
+        if random.random() < self.p:
+            # Chose a random digit to scale by
+            img = np.asarray(img)
+            bboxes = target["boxes"].numpy()
+            img_shape = img.shape
 
-        resize_scale_x = 1 + scale_x
-        resize_scale_y = 1 + scale_y
+            if self.diff:
+                scale_x = random.uniform(*self.scale)
+                scale_y = random.uniform(*self.scale)
+            else:
+                scale_x = random.uniform(*self.scale)
+                scale_y = scale_x
 
-        img = cv2.resize(img, None, fx=resize_scale_x, fy=resize_scale_y)
+            resize_scale_x = 1 + scale_x
+            resize_scale_y = 1 + scale_y
 
-        bboxes[:, :4] *= [resize_scale_x, resize_scale_y, resize_scale_x, resize_scale_y]
+            img = cv2.resize(img, None, fx=resize_scale_x, fy=resize_scale_y)
 
-        canvas = np.zeros(img_shape, dtype=np.uint8)
+            bboxes[:, :4] *= [resize_scale_x, resize_scale_y, resize_scale_x, resize_scale_y]
 
-        y_lim = int(min(resize_scale_y, 1) * img_shape[0])
-        x_lim = int(min(resize_scale_x, 1) * img_shape[1])
+            canvas = np.zeros(img_shape, dtype=np.uint8)
 
-        canvas[:y_lim, :x_lim, :] = img[:y_lim, :x_lim, :]
+            y_lim = int(min(resize_scale_y, 1) * img_shape[0])
+            x_lim = int(min(resize_scale_x, 1) * img_shape[1])
 
-        img = canvas
-        bboxes = clip_box(bboxes, [0, 0, 1 + img_shape[1], img_shape[0]], 0.25)
+            canvas[:y_lim, :x_lim, :] = img[:y_lim, :x_lim, :]
 
-        target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+            img = canvas
+            bboxes = clip_box(bboxes, [0, 0, 1 + img_shape[1], img_shape[0]], 0.25)
 
-        return PIL.Image.fromarray(img), target
+            target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+            img = PIL.Image.fromarray(img)
+        return img, target
 
 class RandomScale2(object):
     # #固定住高度，以0.8-1.2伸缩宽度，做图像形变
@@ -415,6 +491,17 @@ class RandomScale2(object):
         self.p = p
 
     def __call__(self, img, target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             # Chose a random digit to scale by
             img = np.asarray(img)
@@ -433,8 +520,9 @@ class RandomScale2(object):
 class RandomTranslate(object):
     """Randomly Translates the image """
 
-    def __init__(self, translate=0.2, diff=False):
+    def __init__(self,p=0.5, translate=0.2, diff=False):
         self.translate = translate
+        self.p = p
 
         if type(self.translate) == tuple:
             assert len(self.translate) == 2, "Invalid range"
@@ -449,48 +537,63 @@ class RandomTranslate(object):
         self.diff = diff
 
     def __call__(self, img, target):
-        # Chose a random digit to scale by
-        img = np.asarray(img)
-        bboxes = target["boxes"].numpy()
-        img_shape = img.shape
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
 
-        # translate the image
+    def do(self,img,target):
+        if random.random()<self.p:
+            # Chose a random digit to scale by
+            img = np.asarray(img)
+            bboxes = target["boxes"].numpy()
+            img_shape = img.shape
 
-        # percentage of the dimension of the image to translate
-        translate_factor_x = random.uniform(*self.translate)
-        translate_factor_y = random.uniform(*self.translate)
+            # translate the image
 
-        if not self.diff:
-            translate_factor_y = translate_factor_x
+            # percentage of the dimension of the image to translate
+            translate_factor_x = random.uniform(*self.translate)
+            translate_factor_y = random.uniform(*self.translate)
 
-        canvas = np.zeros(img_shape).astype(np.uint8)
+            if not self.diff:
+                translate_factor_y = translate_factor_x
 
-        corner_x = int(translate_factor_x * img.shape[1])
-        corner_y = int(translate_factor_y * img.shape[0])
+            canvas = np.zeros(img_shape).astype(np.uint8)
 
-        # change the origin to the top-left corner of the translated box
-        orig_box_cords = [max(0, corner_y), max(corner_x, 0), min(img_shape[0], corner_y + img.shape[0]),
-                          min(img_shape[1], corner_x + img.shape[1])]
+            corner_x = int(translate_factor_x * img.shape[1])
+            corner_y = int(translate_factor_y * img.shape[0])
 
-        mask = img[max(-corner_y, 0):min(img.shape[0], -corner_y + img_shape[0]),
-               max(-corner_x, 0):min(img.shape[1], -corner_x + img_shape[1]), :]
-        canvas[orig_box_cords[0]:orig_box_cords[2], orig_box_cords[1]:orig_box_cords[3], :] = mask
-        img = canvas
+            # change the origin to the top-left corner of the translated box
+            orig_box_cords = [max(0, corner_y), max(corner_x, 0), min(img_shape[0], corner_y + img.shape[0]),
+                              min(img_shape[1], corner_x + img.shape[1])]
 
-        bboxes[:, :4] += [corner_x, corner_y, corner_x, corner_y]
+            mask = img[max(-corner_y, 0):min(img.shape[0], -corner_y + img_shape[0]),
+                   max(-corner_x, 0):min(img.shape[1], -corner_x + img_shape[1]), :]
+            canvas[orig_box_cords[0]:orig_box_cords[2], orig_box_cords[1]:orig_box_cords[3], :] = mask
+            img = canvas
 
-        bboxes = clip_box(bboxes, [0, 0, img_shape[1], img_shape[0]], 0.25)
+            bboxes[:, :4] += [corner_x, corner_y, corner_x, corner_y]
 
-        target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+            bboxes = clip_box(bboxes, [0, 0, img_shape[1], img_shape[0]], 0.25)
 
-        return PIL.Image.fromarray(img), target
+            target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+
+            return PIL.Image.fromarray(img), target
+        else:
+            return img,target
 
 
 class RandomRotate(object):
     """Randomly rotates an image    """
 
-    def __init__(self, angle=10):
+    def __init__(self, p=0.5,angle=10):
         self.angle = angle
+        self.p = p
 
         if type(self.angle) == tuple:
             assert len(self.angle) == 2, "Invalid range"
@@ -499,39 +602,53 @@ class RandomRotate(object):
             self.angle = (-self.angle, self.angle)
 
     def __call__(self, img, target):
-        img = np.asarray(img)
-        bboxes = target["boxes"].numpy()
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
 
-        angle = random.uniform(*self.angle)
+    def do(self,img,target):
+        if random.random()<self.p:
+            img = np.asarray(img)
+            bboxes = target["boxes"].numpy()
 
-        w, h = img.shape[1], img.shape[0]
-        cx, cy = w // 2, h // 2
+            angle = random.uniform(*self.angle)
 
-        img = rotate_im(img, angle)
+            w, h = img.shape[1], img.shape[0]
+            cx, cy = w // 2, h // 2
 
-        corners = get_corners(bboxes)
+            img = rotate_im(img, angle)
 
-        corners = np.hstack((corners, bboxes[:, 4:]))
+            corners = get_corners(bboxes)
 
-        corners[:, :8] = rotate_box(corners[:, :8], angle, cx, cy, h, w)
+            corners = np.hstack((corners, bboxes[:, 4:]))
 
-        new_bbox = get_enclosing_box(corners)
+            corners[:, :8] = rotate_box(corners[:, :8], angle, cx, cy, h, w)
 
-        scale_factor_x = img.shape[1] / w
+            new_bbox = get_enclosing_box(corners)
 
-        scale_factor_y = img.shape[0] / h
+            scale_factor_x = img.shape[1] / w
 
-        img = cv2.resize(img, (w, h))
+            scale_factor_y = img.shape[0] / h
 
-        new_bbox[:, :4] /= [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y]
+            img = cv2.resize(img, (w, h))
 
-        bboxes = new_bbox
+            new_bbox[:, :4] /= [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y]
 
-        bboxes = clip_box(bboxes, [0, 0, w, h], 0.25)
+            bboxes = new_bbox
 
-        target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+            bboxes = clip_box(bboxes, [0, 0, w, h], 0.25)
 
-        return PIL.Image.fromarray(img), target
+            target["boxes"] = torch.as_tensor(bboxes,dtype=torch.float32)
+
+            return PIL.Image.fromarray(img), target
+        else:
+            return img,target
 
 
 class RandomBrightness(object):
@@ -540,6 +657,17 @@ class RandomBrightness(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             img = np.asarray(img)
             hsv = BGR2HSV(img)
@@ -560,6 +688,17 @@ class RandomSaturation(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             bgr = np.asarray(img)
             hsv = BGR2HSV(bgr)
@@ -580,6 +719,17 @@ class RandomHue(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             bgr = np.asarray(img)
             hsv = BGR2HSV(bgr)
@@ -600,6 +750,17 @@ class RandomBlur(object):
         self.kernel = kernel
 
     def __call__(self,img,target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             bgr = np.asarray(img)
             bgr = cv2.blur(bgr,self.kernel)
@@ -614,6 +775,17 @@ class RandomShift(object):
         self.p = p
 
     def __call__(self,img,target):
+        try:
+            _img, _target = self.do(img.copy(), target.copy())
+            if len(_target["boxes"]) > 0:
+                img, target = _img, _target
+            del _img
+            del _target
+        except:
+            pass
+        return img, target
+
+    def do(self,img,target):
         if random.random() < self.p:
             bgr = np.asarray(img)
             boxes = target["boxes"]#.numpy()
@@ -735,7 +907,7 @@ class RandomChoice(object):
             RandomCrop(),
             RandomScale2(),
             RandomScale(),
-            RandomDrop((0.05, 0.05)),
+            RandomDrop(cropsize=(0.05, 0.05)),
         ])
 
         return choice(img,target)

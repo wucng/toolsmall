@@ -32,8 +32,8 @@ def run_seq():
             # iaa.Flipud(0.2),  # vertically flip 20% of all images
 
             # crop some of the images by 0-10% of their height/width
-            # sometimes(iaa.Crop(percent=(0, 0.1))),
-            sometimes(iaa.Crop(percent=(0, 0.05))),
+            sometimes(iaa.Crop(percent=(0, 0.1))),
+            # sometimes(iaa.Crop(percent=(0, 0.05))),
 
             # Apply affine transformations to some of the images
             # - scale to 80-120% of image height/width (each axis independently)
@@ -46,26 +46,16 @@ def run_seq():
             # - cval: if the mode is constant, then use a random brightness
             #         for the newly created pixels (e.g. sometimes black,
             #         sometimes white)
-            # sometimes(iaa.Affine(
-            #     scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-            #     translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
-            #     rotate=(-45, 45),
-            #     shear=(-16, 16),
-            #     order=[0, 1],
-            #     cval=(0, 255),
-            #     mode=ia.ALL
-            # )),
-
             sometimes(iaa.Affine(
                 scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)},
-                # rotate=(-3, 3),
-                # shear=(-2, 2),
+                translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
+                # rotate=(-45, 45),
                 rotate=(-5, 5),
-                shear=(-4, 4)
-                # order=[0, 1],
-                # cval=(0, 255),
-                # mode=ia.ALL
+                # shear=(-16, 16),
+                shear=(-5, 5),
+                order=[0, 1],
+                cval=(0, 255),
+                mode=ia.ALL
             )),
 
             #
@@ -182,8 +172,8 @@ def run_seq2():
     # sometimes = lambda aug: iaa.Sometimes(0.5, aug)
     seq = iaa.Sequential([
         iaa.Fliplr(0.5),  # horizontal flips
-        # iaa.Crop(percent=(0, 0.1)),  # random crops
-        iaa.Crop(percent=(0, 0.01)),  # random crops
+        iaa.Crop(percent=(0, 0.1)),  # random crops
+        # iaa.Crop(percent=(0, 0.05)),
         # Small gaussian blur with random sigma between 0 and 0.5.
         # But we only blur about 50% of all images.
         iaa.Sometimes(
@@ -204,18 +194,13 @@ def run_seq2():
         iaa.Multiply((0.8, 1.2), per_channel=0.2),
         # Apply affine transformations to each image.
         # Scale/zoom them, translate/move them, rotate them and shear them.
-        # iaa.Affine(
-        #     scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-        #     translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
-        #     rotate=(-25, 25),
-        #     shear=(-8, 8)
-        # )
         iaa.Sometimes(0.5,
         iaa.Affine(
             scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-            translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
-            rotate=(-3, 3),
-            shear=(-2, 2)
+            translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
+            rotate=(-5, 5),
+            # rotate=(-25, 25),
+            shear=(-5, 5)
         ))
 
     ], random_order=True)  # apply augmenters in random order
