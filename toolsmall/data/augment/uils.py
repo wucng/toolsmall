@@ -282,18 +282,21 @@ def clip_box(bbox, clip_box, alpha):
 
     """
     ar_ = (bbox_area(bbox))
-    x_min = np.maximum(bbox[:, 0], clip_box[0]).reshape(-1, 1)
-    y_min = np.maximum(bbox[:, 1], clip_box[1]).reshape(-1, 1)
-    x_max = np.minimum(bbox[:, 2], clip_box[2]).reshape(-1, 1)
-    y_max = np.minimum(bbox[:, 3], clip_box[3]).reshape(-1, 1)
+    if (ar_>0).all():
+        x_min = np.maximum(bbox[:, 0], clip_box[0]).reshape(-1, 1)
+        y_min = np.maximum(bbox[:, 1], clip_box[1]).reshape(-1, 1)
+        x_max = np.minimum(bbox[:, 2], clip_box[2]).reshape(-1, 1)
+        y_max = np.minimum(bbox[:, 3], clip_box[3]).reshape(-1, 1)
 
-    bbox = np.hstack((x_min, y_min, x_max, y_max, bbox[:, 4:]))
+        bbox = np.hstack((x_min, y_min, x_max, y_max, bbox[:, 4:]))
 
-    delta_area = ((ar_ - bbox_area(bbox)) / ar_)
+        delta_area = ((ar_ - bbox_area(bbox)) / ar_)
 
-    mask = (delta_area < (1 - alpha)).astype(int)
+        mask = (delta_area < (1 - alpha)).astype(int)
 
-    bbox = bbox[mask == 1, :]
+        bbox = bbox[mask == 1, :]
+    else:
+        bbox = []
 
     return bbox
 
