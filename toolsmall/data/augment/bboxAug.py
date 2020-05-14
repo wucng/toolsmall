@@ -34,7 +34,12 @@ class Augment(object):
         try:
             _image, _target=simple_agu(image.copy(),target.copy(),np.random.randint(0, int(1e5), 1)[0],self.advanced)
             if len(_target["boxes"])>0:
-                image, target=_image, _target
+                # clip to image
+                w,h=_image.size # PIL
+                _target["boxes"][:,[0,2]] = _target["boxes"][:,[0,2]].clamp(min=0,max=w)
+                _target["boxes"][:,[1,3]] = _target["boxes"][:,[1,3]].clamp(min=0,max=h)
+                if (_target["boxes"][:,2:]-_target["boxes"][:,:2]>0).all():
+                    image, target=_image, _target
             del _image
             del _target
         except:
@@ -241,8 +246,13 @@ class RandomDrop(object):
         """
         try:
             _img, _target = self.do(img.copy(),target.copy())
-            if len(_target["boxes"])>0:
-                img, target=_img, _target
+            if len(_target["boxes"]) > 0:
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -296,7 +306,12 @@ class RandomCrop(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -353,7 +368,12 @@ class RandomHorizontalFlip(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -393,7 +413,12 @@ class RandomVerticallyFlip(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -441,7 +466,12 @@ class RandomScale(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
 
@@ -494,7 +524,12 @@ class RandomScale2(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -540,7 +575,12 @@ class RandomTranslate(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -605,7 +645,12 @@ class RandomRotate(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -660,7 +705,12 @@ class RandomBrightness(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -691,7 +741,12 @@ class RandomSaturation(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -722,7 +777,12 @@ class RandomHue(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -753,7 +813,12 @@ class RandomBlur(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
@@ -778,7 +843,12 @@ class RandomShift(object):
         try:
             _img, _target = self.do(img.copy(), target.copy())
             if len(_target["boxes"]) > 0:
-                img, target = _img, _target
+                # clip to image
+                w, h = _img.size  # PIL
+                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
+                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
+                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
+                    image, target = _image, _target
             del _img
             del _target
         except:
