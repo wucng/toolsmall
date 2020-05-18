@@ -230,6 +230,48 @@ class Resize2(object):
 
         return img,target
 
+class ResizeMinMax(object):
+    """按最小边填充"""
+    def __init__(self,min_size=600,max_size=1000): # 800,1333
+        self.min_size = min_size
+        self.max_size = max_size
+
+    def __call__(self, img,target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+        img = np.asarray(img)
+        img_h, img_w = img.shape[:2]
+
+        target["original_size"] = torch.as_tensor((img_h, img_w),dtype=torch.float32)
+
+        # 按最小边填充
+        min_size = min(img_w, img_h)
+        max_size = max(img_w, img_h)
+        scale = self.min_size/min_size
+        if max_size*scale>self.max_size:
+            scale = self.max_size /max_size
+
+        new_w = int(scale * img_w)
+        new_h = int(scale * img_h)
+
+        target["resize"] = torch.as_tensor((new_h,new_w), dtype=torch.float32)
+
+        # img = scipy.misc.imresize(img, [new_h,new_w], 'bicubic')  # or 'cubic'
+        img = cv2.resize(img,(new_w,new_h),interpolation=cv2.INTER_CUBIC)
+
+        if "boxes" in target:
+            boxes = target["boxes"]
+            boxes = Resize().resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
+            target["boxes"] = boxes
+
+        return img,target
+
+
 class RandomDrop(object):
     def __init__(self,p=0.5,cropsize=(0.1,0.1)):
         """cropsize:从原图裁剪掉的像素值范围比例"""
