@@ -104,7 +104,7 @@ class Pad(object):
                 target: Tensor
         """
         img = np.asarray(img)
-        target["original_size"] = torch.as_tensor(img.shape[:2])
+        target["original_size"] = torch.as_tensor(img.shape[:2],dtype=torch.float32)
         img,target = self.pad_img(img,target)
         return img,target
 
@@ -159,7 +159,7 @@ class Resize(object):
         img = np.asarray(img)
         original_size = img.shape[:2]
         # target["original_size"] = torch.as_tensor(original_size)
-        target["resize"] = torch.as_tensor(self.size)
+        target["resize"] = torch.as_tensor(self.size,dtype=torch.float32)
 
         # img = scipy.misc.imresize(img,self.size,'bicubic') #  or 'cubic'
         img = cv2.resize(img, self.size, interpolation=cv2.INTER_CUBIC)
@@ -205,8 +205,8 @@ class Resize2(object):
         img = np.asarray(img)
         img_h, img_w = img.shape[:2]
 
-        target["original_size"] = torch.as_tensor((img_h, img_w))
-        target["resize"] = torch.as_tensor(self.size)
+        target["original_size"] = torch.as_tensor((img_h, img_w),dtype=torch.float32)
+        target["resize"] = torch.as_tensor(self.size,dtype=torch.float32)
 
         w, h = self.size
         new_w = int(img_w * min(w / img_w, h / img_h))
@@ -282,8 +282,8 @@ class RandomDrop(object):
                     new_boxes.append([max(0,b[0]-x1), max(0,b[1]-y1), min(new_w,b[2]-x1), min(new_h,b[3]-y1)])
                     new_labels.append(labels[i])
 
-            new_boxes = torch.as_tensor(new_boxes)
-            new_labels = torch.as_tensor(new_labels)
+            new_boxes = torch.as_tensor(new_boxes,dtype=torch.float32)
+            new_labels = torch.as_tensor(new_labels,dtype=torch.long)
             target["boxes"] = new_boxes
             target["labels"] = new_labels
 

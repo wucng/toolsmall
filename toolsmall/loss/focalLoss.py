@@ -83,7 +83,7 @@ def ciou_loss(
     h = y2-y1
     wg = x2g-x1g
     hg = y2g-y1g
-    pi = -4*torch.atan(torch.tensor(-1.,device=boxes1.device))
+    pi = -4*torch.atan(torch.tensor(-1.,device=boxes1.device,dtype=torch.float32))
     v = 4/pi**2*(torch.atan(wg/hg)-torch.atan(w/h))**2
     alpha = v/(1-iouk+v)
 

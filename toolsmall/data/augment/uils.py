@@ -267,8 +267,8 @@ def simple_agu(image,target,seed=100,advanced=False,shape=(),last_class_id=True)
         box.append([item.x1, item.y1, item.x2, item.y2])
         label.append(item.label)
 
-    target["boxes"]=torch.as_tensor(box)
-    target["labels"]=torch.as_tensor(label)
+    target["boxes"]=torch.as_tensor(box,dtype=torch.float32)
+    target["labels"]=torch.as_tensor(label,dtype=torch.long)
 
     return image_aug,target
 

@@ -193,7 +193,7 @@ def evaluate2(model,loss_func, data_loader, device):
         outputs_1 = []
         for t in outputs:
             if t is None:
-                outputs_1.append({"boxes":torch.as_tensor([[0,0,0,0]]),
+                outputs_1.append({"boxes":torch.as_tensor([[0,0,0,0]],dtype=torch.float32),
                                   "labels":torch.as_tensor([0],dtype=torch.long),
                                   "scores":torch.as_tensor([0.])})
             else:
