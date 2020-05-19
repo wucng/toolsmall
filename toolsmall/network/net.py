@@ -103,7 +103,7 @@ class FPNNet(nn.Module):
             outs[i] = self.layer_blocks[i](last_inner)
 
         # 最后一个做pool 只用于提取框
-        outs["pool"]=F.max_pool2d(outs[i], 1, 2, 0)
+        outs[4]=F.max_pool2d(outs[i], 1, 2, 0) # "pool"
 
         return outs
 
