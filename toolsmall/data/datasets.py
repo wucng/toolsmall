@@ -251,11 +251,12 @@ class PascalVOCDataset(Dataset):
     """
     http://host.robots.ox.ac.uk/pascal/VOC/
     """
-    def __init__(self, root,year=2007,transforms=None,classes=[]):
+    def __init__(self, root,year=2007,transforms=None,classes=[],useDifficult=False):
         # self.root = os.path.join(root,"VOCdevkit","VOC%s"%(year))
         self.root = os.path.join(root,"VOC%s"%(year))
         self.transforms = transforms
         self.classes=classes
+        self.useDifficult = useDifficult
         self.annotations = self.change2csv()
 
     def parse_xml(self,xml):
@@ -266,7 +267,9 @@ class PascalVOCDataset(Dataset):
         boxes = []
         labels = []
         for obj in root.iter('object'):
-            difficult = obj.find('difficult').text
+            if not self.useDifficult:
+                difficult = obj.find('difficult').text
+                if int(difficult) == 1:continue
             cls = obj.find('name').text
             if cls not in self.classes:# or int(difficult)==1:
                 continue
