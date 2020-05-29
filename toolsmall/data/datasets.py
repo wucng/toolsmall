@@ -50,7 +50,7 @@ class PennFudanDataset(object):
         FudanPed00003.png
         FudanPed00004.png
     """
-    def __init__(self, root="./PennFudanPed/", transforms=None,classes=[]):
+    def __init__(self, root="./PennFudanPed/",year=None, transforms=None,classes=[]):
         self.root = root
         self.transforms = transforms
         # load all image files, sorting them to
@@ -275,8 +275,8 @@ class PascalVOCDataset(Dataset):
                 continue
             cls_id = self.classes.index(cls)  # 这里不包含背景，如果要包含背景 只需+1, 0默认为背景
             xmlbox = obj.find('bndbox')
-            b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text),
-                 int(xmlbox.find('ymax').text))
+            b = (int(float(xmlbox.find('xmin').text)), int(float(xmlbox.find('ymin').text)), int(float(xmlbox.find('xmax').text)),
+                 int(float(xmlbox.find('ymax').text)))
             boxes.append(b)
             labels.append(cls_id)
 
