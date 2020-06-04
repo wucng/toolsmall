@@ -259,7 +259,7 @@ class ResizeMinMax(object):
         new_w = int(scale * img_w)
         new_h = int(scale * img_h)
 
-        target["resize"] = torch.as_tensor((new_h,new_w), dtype=torch.float32)
+        target["resize"] = torch.as_tensor((new_h,new_w,scale), dtype=torch.float32)
 
         # img = scipy.misc.imresize(img, [new_h,new_w], 'bicubic')  # or 'cubic'
         img = cv2.resize(img,(new_w,new_h),interpolation=cv2.INTER_CUBIC)

@@ -9,8 +9,17 @@ import torch
 from torch import nn
 
 def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
-    # for idx,prediction in enumerate(detections):
-    # 1.先按scores过滤分数低的,过滤掉分数小于conf_thres
+    """
+    Parameters
+    ----------
+    prediction:
+            {"boxes":Tensor[N,4],"labels":Tensor[N,],"scores":Tensor[N,]}
+
+    Returns:
+    -------
+           {"boxes":Tensor[N,4],"labels":Tensor[N,],"scores":Tensor[N,]}
+
+    """
     ms = prediction["scores"] > conf_thres
     if torch.sum(ms) == 0:
         return None
@@ -86,6 +95,23 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
         return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes}
 
 def draw_rect(image, pred,classes=[]):
+    """
+    Parameters
+    ----------
+    image:
+            np.array[h,w,3] ,0~255
+    pred:
+            {"boxes":Tensor[N,4],"labels":Tensor[N,],"scores":Tensor[N,]}
+    classes:
+            ["bicycle", "bus", "car", "motorbike", "person"] 注意默认不包含背景的
+
+    Returns:
+    -------
+    image:
+        np.array[h,w,3] ,0~255
+
+    """
+
     labels = pred["labels"]
     bboxs = pred["boxes"]
     scores = pred["scores"]
@@ -145,6 +171,8 @@ def box_iou(boxes1, boxes2):
 
 def xywh2x1y1x2y2(boxes):
     """
+    xywh->x1y1x2y2
+
     :param boxes: [...,4]
     :return:
     """
@@ -155,6 +183,8 @@ def xywh2x1y1x2y2(boxes):
 
 def x1y1x2y22xywh(boxes):
     """
+    x1y1x2y2-->xywh
+
     :param boxes: [...,4]
     :return:
     """
@@ -165,6 +195,15 @@ def x1y1x2y22xywh(boxes):
 
 
 class Flatten(nn.Module):
+    """
+    :param
+    :return
+
+    :example
+        x = torch.rand([3,1000,1,1]);
+        x = Flatten()(x);
+        print(x.shape) # [3,1000]
+    """
     def __init__(self):
         super(Flatten, self).__init__()
     def forward(self, x):
@@ -201,3 +240,36 @@ def weights_init_rpn(model):
             nn.init.normal_(m.weight, 0, 0.01)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
+
+def weights_init(model):
+    """
+    :param model: nn.Model
+    :return:
+
+    :example
+        m = nn.Sequential(
+            nn.Conv2d(3,32,3,2,1),
+            nn.BatchNorm2d(32),
+            nn.ReLU())
+
+        m.apply(weights_init)
+    """
+    mode = 'fan_in';slope = 0.1
+
+    # for m in self.modules():
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight, a=slope, mode=mode)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            nn.init.constant_(m.bias, 0)
+
+# ----------------------------------------------------------------
+
+if __name__=="__main__":
+    pass
