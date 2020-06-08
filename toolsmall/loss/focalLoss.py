@@ -9,7 +9,7 @@ from fvcore.nn import (focal_loss,giou_loss,smooth_l1_loss,
 
 __all__=["giou_loss_jit","smooth_l1_loss_jit",
          "sigmoid_focal_loss_jit","sigmoid_focal_loss_star_jit",
-         "diou_loss_jit","ciou_loss_jit"]
+         "diou_loss_jit","ciou_loss_jit","smooth_label_cross_entropy_loss_jit"]
 
 giou_loss_jit = torch.jit.script(
     giou_loss
@@ -170,6 +170,40 @@ def diou_loss(
 diou_loss_jit = torch.jit.script(
     diou_loss
 )  # type: torch.jit.ScriptModule
+
+
+# smooth loss
+def smooth_label_cross_entropy_loss(
+        preds:torch.Tensor, # [N,num_classes]
+        targets:torch.Tensor, # [N,]
+        alpha:float = 0.03,
+        reduction: str = "none",
+        useSoftmax:bool=False
+) -> torch.Tensor:
+    """
+    :param preds:
+    :param targets:
+    :param reduction:
+    :return:
+    """
+    num_classes = preds.size(-1)
+    onehot_label = F.one_hot(targets,num_classes).float().to(preds.device)
+    # label smooth
+    onehot_label = onehot_label * (1 - alpha) + alpha / num_classes * torch.ones_like(onehot_label)
+
+    # cross entropy loss
+    if useSoftmax:
+        loss = F.binary_cross_entropy_with_logits(torch.softmax(preds,-1), onehot_label,reduction=reduction)
+    else:
+        loss = sigmoid_focal_loss_jit(preds, onehot_label, 0.2, 2.0, reduction=reduction)
+
+    return loss
+
+smooth_label_cross_entropy_loss_jit = torch.jit.script(
+    smooth_label_cross_entropy_loss
+)  # type: torch.jit.ScriptModule
+
+
 
 if __name__=="__main__":
     # pred = torch.rand([5,])

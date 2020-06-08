@@ -7,11 +7,14 @@ import os
 import numpy as np
 import torch
 from PIL import Image
+import random
+import cv2
 # from torchvision.datasets.voc import VOCDetection,VOCSegmentation
 # from torchvision.datasets.coco import CocoCaptions, CocoDetection
 from torch.utils.data import Dataset,DataLoader
 from torchvision.datasets.vision import VisionDataset
 from torchvision.datasets.voc import *
+
 
 __all__=["glob_format","PennFudanDataset","PascalVOCDataset","PascalVOCDataset","ValidDataset"]
 
@@ -50,55 +53,136 @@ class PennFudanDataset(object):
         FudanPed00003.png
         FudanPed00004.png
     """
-    def __init__(self, root="./PennFudanPed/",year=None, transforms=None,classes=[]):
+    def __init__(self, root="./PennFudanPed/",year=None, transforms=None,classes=[],useMosaic=False):
         self.root = root
         self.transforms = transforms
         # load all image files, sorting them to
         # ensure that they are aligned
         self.imgs = list(sorted(os.listdir(os.path.join(root, "PNGImages"))))
         self.masks = list(sorted(os.listdir(os.path.join(root, "PedMasks"))))
+        self.useMosaic = useMosaic
 
-    def __getitem__(self, idx):
+    def load(self,idx):
         # load images ad masks
         img_path = os.path.join(self.root, "PNGImages", self.imgs[idx])
         mask_path = os.path.join(self.root, "PedMasks", self.masks[idx])
-        img = Image.open(img_path).convert("RGB")
+        # img = Image.open(img_path).convert("RGB")
+        img = np.asarray(Image.open(img_path).convert("RGB"), np.uint8)
         # note that we haven't converted the mask to RGB,
-        # because each color corresponds to a different instance
+        # because each color corresponds to a different instance ，因为每种颜色对应不同的实例
         # with 0 being background
         mask = Image.open(mask_path)
-        # convert the PIL Image into a numpy array
+
         mask = np.array(mask)
+        ori_mask = mask
         # instances are encoded as different colors
-        obj_ids = np.unique(mask)
+        # 实例被编码为不同的颜色（0为背景，1为对象1,2为对象2,3为对象3，...）
+        obj_ids = np.unique(mask)  # array([0, 1, 2], dtype=uint8),mask有2个对象分别为1,2
         # first id is the background, so remove it
-        obj_ids = obj_ids[1:]
+        # first id是背景，所以删除它
+        obj_ids = obj_ids[1:]  # array([1, 2], dtype=uint8)
 
         # split the color-encoded mask into a set
-        # of binary masks
-        masks = mask == obj_ids[:, None, None]
+        # of binary masks ,0,1二值图像
+        # 将颜色编码的掩码分成一组二进制掩码 SegmentationObject-->mask
+        masks = mask == obj_ids[:, None, None]  # shape (2, 536, 559)，2个mask
+        # obj_ids[:, None, None] None为增加对应的维度，shape为 [2, 1, 1]
 
         # get bounding box coordinates for each mask
         num_objs = len(obj_ids)
         boxes = []
-        for i in range(num_objs):
-            pos = np.where(masks[i])
+        for i in range(num_objs):  # mask反算对应的bbox
+            pos = np.where(masks[i])  # 返回像素值为1 的索引，pos[0]对应行(y)，pos[1]对应列(x)
             xmin = np.min(pos[1])
             xmax = np.max(pos[1])
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
 
-        # convert everything into a torch.Tensor
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         # there is only one class
         labels = torch.zeros((num_objs,), dtype=torch.int64)
+        # masks = torch.as_tensor(masks, dtype=torch.uint8)
+
+        return img,ori_mask, boxes, labels,img_path
+
+    def mosaic(self,idx):
+        # 做马赛克数据增强，详情参考：yolov4
+        index = torch.randperm(self.__len__()).tolist()
+        if idx + 3 >= self.__len__():
+            idx = 0
+
+        idx2 = index[idx + 1]
+        idx3 = index[idx + 2]
+        idx4 = index[idx + 3]
+
+        img,mask, boxes, labels,img_path = self.load(idx)
+        img2,mask2, boxes2, labels2,_ = self.load(idx2)
+        img3,mask3, boxes3, labels3,_ = self.load(idx3)
+        img4,mask4, boxes4, labels4,_ = self.load(idx4)
+
+        h1, w1, _ = img.shape
+        h2, w2, _ = img2.shape
+        h3, w3, _ = img3.shape
+        h4, w4, _ = img4.shape
+
+        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
+        h = min((h1, h2, h3, h4))
+        w = min((w1, w2, w3, h4))
+        # h = max((h1, h2, h3, h4))//2
+        # w = max((w1, w2, w3, h4))//2
+
+        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
+        temp_masks = np.zeros((2 * h, 2 * w), np.uint8)
+        temp_boxes = []
+        temp_labels = []
+        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
+        temp_masks[0:h, 0:w] = cv2.resize(mask, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes, (h1, w1), (h, w)))
+        temp_labels.extend(labels)
+
+        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
+        temp_masks[0:h, w:] = cv2.resize(mask2, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
+        temp_labels.extend(labels2)
+
+        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
+        temp_masks[h:, 0:w] = cv2.resize(mask3, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
+        temp_labels.extend(labels3)
+
+        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
+        temp_masks[h:, w:] = cv2.resize(mask4, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
+        temp_labels.extend(labels4)
+
+        img = temp_img
+        boxes = torch.stack(temp_boxes, 0).float()
+        labels = torch.as_tensor(temp_labels, dtype=torch.long)
+        masks = temp_masks
+
+        return img,masks,boxes,labels,img_path
+
+    def __getitem__(self, idx):
+        if self.useMosaic:
+            if random.random() < 0.5:  # 50%的几率
+                img, masks, boxes, labels,img_path = self.mosaic(idx)
+            else:
+                img, masks, boxes, labels,img_path = self.load(idx)
+        else:
+            img, masks, boxes, labels,img_path = self.load(idx)
+
+        img = Image.fromarray(img)
+
+        obj_ids = np.unique(masks)
+        obj_ids = obj_ids[1:]
+        masks = masks == obj_ids[:, None, None]  # shape (2, 536, 559)，2个mask
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         image_id = torch.tensor([idx])
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
         # suppose all instances are not crowd
-        iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
+        iscrowd = torch.zeros((len(labels),), dtype=torch.int64)
 
         target = {}
         target["boxes"] = boxes
@@ -116,6 +200,16 @@ class PennFudanDataset(object):
 
     def __len__(self):
         return len(self.imgs)
+
+    def resize_boxes(self,boxes, original_size, new_size):
+        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
+        ratio_height, ratio_width = ratios
+        xmin, ymin, xmax, ymax = boxes.unbind(1)
+        xmin = xmin * ratio_width
+        xmax = xmax * ratio_width
+        ymin = ymin * ratio_height
+        ymax = ymax * ratio_height
+        return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
 class PascalVOCDataset2(VisionDataset):
     """
@@ -251,13 +345,15 @@ class PascalVOCDataset(Dataset):
     """
     http://host.robots.ox.ac.uk/pascal/VOC/
     """
-    def __init__(self, root,year=2007,transforms=None,classes=[],useDifficult=False):
+    def __init__(self, root,year=2007,transforms=None,classes=[],useDifficult=False,useMosaic=False):
         # self.root = os.path.join(root,"VOCdevkit","VOC%s"%(year))
         self.root = os.path.join(root,"VOC%s"%(year))
         self.transforms = transforms
         self.classes=classes
         self.useDifficult = useDifficult
         self.annotations = self.change2csv()
+
+        self.useMosaic=useMosaic
 
     def parse_xml(self,xml):
         in_file = open(xml)
@@ -302,14 +398,78 @@ class PascalVOCDataset(Dataset):
         random.seed(seed)
         random.shuffle(self.annotations)
 
-    def __getitem__(self, idx):
-        annotations= self.annotations[idx]
+    def load(self,idx):
+        annotations = self.annotations[idx]
         img_path = annotations["image"]
-        img = Image.open(img_path).convert("RGB")
-        boxes=annotations["boxes"]
-        labels=annotations["labels"]
+        img = np.asarray(Image.open(img_path).convert("RGB"),np.uint8)
+        boxes = annotations["boxes"]
+        labels = annotations["labels"]
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
+
+        return img,boxes,labels,img_path
+
+    def mosaic(self,idx):
+        # 做马赛克数据增强，详情参考：yolov4
+        index = torch.randperm(self.__len__()).tolist()
+        if idx + 3 >= self.__len__():
+            idx = 0
+
+        idx2 = index[idx + 1]
+        idx3 = index[idx + 2]
+        idx4 = index[idx + 3]
+
+        img, boxes, labels,img_path = self.load(idx)
+        img2, boxes2, labels2,_ = self.load(idx2)
+        img3, boxes3, labels3,_ = self.load(idx3)
+        img4, boxes4, labels4,_ = self.load(idx4)
+
+        h1, w1, _ = img.shape
+        h2, w2, _ = img2.shape
+        h3, w3, _ = img3.shape
+        h4, w4, _ = img4.shape
+
+        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
+        h = min((h1, h2, h3, h4))
+        w = min((w1, w2, w3, h4))
+        # h = max((h1, h2, h3, h4))//2
+        # w = max((w1, w2, w3, h4))//2
+
+        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
+        temp_boxes = []
+        temp_labels = []
+        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes, (h1, w1), (h, w)))
+        temp_labels.extend(labels)
+
+        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
+        temp_labels.extend(labels2)
+
+        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
+        temp_labels.extend(labels3)
+
+        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
+        temp_boxes.extend(self.resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
+        temp_labels.extend(labels4)
+
+        img = temp_img
+        boxes = torch.stack(temp_boxes, 0).float()
+        labels = torch.as_tensor(temp_labels, dtype=torch.long)
+
+        return img,boxes,labels,img_path
+
+    def __getitem__(self, idx):
+        if self.useMosaic:
+            if random.random() < 0.5:  # 50%的几率
+                img, boxes, labels,img_path = self.mosaic(idx)
+            else:
+                img, boxes, labels,img_path = self.load(idx)
+        else:
+            img, boxes, labels, img_path = self.load(idx)
+
+        img = Image.fromarray(img)
         iscrowd = torch.zeros_like(labels,dtype=torch.float32)
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
 
@@ -326,6 +486,15 @@ class PascalVOCDataset(Dataset):
 
         return img, target
 
+    def resize_boxes(self,boxes, original_size, new_size):
+        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
+        ratio_height, ratio_width = ratios
+        xmin, ymin, xmax, ymax = boxes.unbind(1)
+        xmin = xmin * ratio_width
+        xmax = xmax * ratio_width
+        ymin = ymin * ratio_height
+        ymax = ymax * ratio_height
+        return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
 class ValidDataset(Dataset):
     def __init__(self, root, transforms=None):
