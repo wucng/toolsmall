@@ -504,13 +504,14 @@ def build_optimizer(model: torch.nn.Module,base_lr:float=2.5e-4,
 
             # elif key.startswith('backbone') and value.requires_grad:
             elif 'backbone' in key and value.requires_grad:
-                lr = base_lr * 0.5 # 0.05
+                lr = base_lr * 0.1 # 0.05
                 weight_decay = 1e-5
 
             params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
 
     # optimizer = torch.optim.SGD(params, base_lr, momentum=momentum)
     optimizer = torch.optim.RMSprop(params, base_lr, momentum=momentum)
+    # optimizer = torch.optim.AdamW(params, base_lr, weight_decay=5e-4)
     optimizer = maybe_add_gradient_clipping(optimizer,clip_gradients,clip_type)
     return optimizer
 

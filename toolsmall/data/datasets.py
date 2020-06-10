@@ -210,13 +210,15 @@ class PennFudanDataset(object):
 
     def __getitem__(self, idx):
         if self.useMosaic:
-            state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
+            # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
+            state = np.random.choice(["general", "ricap"], 1)[0]
             if state == "general":
                 img, masks, boxes, labels,img_path = self.load(idx)
             elif state == "ricap":
                 img, masks, boxes, labels,img_path = self.mosaic(idx)
             else:
-                img, masks, boxes, labels,img_path = self.mixup(idx)
+                pass
+                # img, masks, boxes, labels,img_path = self.mixup(idx)
         else:
             img, masks, boxes, labels,img_path = self.load(idx)
 
@@ -545,13 +547,15 @@ class PascalVOCDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.useMosaic:
-            state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
+            # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
+            state = np.random.choice(["general", "ricap"], 1)[0]
             if state == "general":
                 img, boxes, labels,img_path = self.load(idx)
             elif state == "ricap":
                 img, boxes, labels,img_path = self.mosaic(idx)
             else:
-                img, boxes, labels,img_path = self.mixup(idx)
+                # img, boxes, labels,img_path = self.mixup(idx)
+                pass
         else:
             img, boxes, labels, img_path = self.load(idx)
 
