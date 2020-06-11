@@ -644,3 +644,21 @@ def build_lr_scheduler(
         )
     else:
         raise ValueError("Unknown LR scheduler: {}".format(name))
+
+
+def build_optimizer2(model: torch.nn.Module,base_lr:float=2.5e-4,
+                    weight_decay:float=1e-4,momentum:float=0.9) -> torch.optim.Optimizer:
+    # construct an optimizer
+    # params = [p for p in self.network.parameters() if p.requires_grad]
+    params = []
+    for key, value in dict(model.named_parameters()).items():
+        if value.requires_grad:
+            if 'backbone' in key:
+                params += [{'params': [value], 'lr': base_lr * 0.1, 'weight_decay': weight_decay*0.1}]
+            else:
+                params += [{'params': [value], 'lr': base_lr, 'weight_decay': weight_decay}]
+    # optimizer = torch.optim.SGD(params, lr=base_lr, momentum=momentum, weight_decay=weight_decay)
+    optimizer = torch.optim.RMSprop(params,base_lr,momentum=momentum, weight_decay=weight_decay)
+    # optimizer = torch.optim.AdamW(params, base_lr, weight_decay=weight_decay)
+
+    return optimizer
