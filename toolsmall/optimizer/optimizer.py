@@ -619,7 +619,7 @@ def _get_warmup_factor_at_iter(
 
 def build_lr_scheduler(
     optimizer: torch.optim.Optimizer,lr_scheduler_name="WarmupMultiStepLR",
-
+    scale = 1
 ) -> torch.optim.lr_scheduler._LRScheduler:
     """
     Build a LR scheduler from config.
@@ -628,18 +628,18 @@ def build_lr_scheduler(
     if name == "WarmupMultiStepLR":
         return WarmupMultiStepLR(
             optimizer,
-            [210000, 250000],
+            [210000//scale, 250000//scale],
             0.1,
             warmup_factor=1e-3,
-            warmup_iters=1000,
+            warmup_iters=1000//scale,
             warmup_method="linear",
         )
     elif name == "WarmupCosineLR":
         return WarmupCosineLR(
             optimizer,
-            300,
+            300//scale,
             warmup_factor=1e-3,
-            warmup_iters=1000,
+            warmup_iters=1000//scale,
             warmup_method="linear",
         )
     else:
