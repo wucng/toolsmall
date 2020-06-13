@@ -17,12 +17,14 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,lr_
     header = 'Epoch: [{}]'.format(epoch)
     num_trains = len(data_loader.dataset)
     total_loss = 0.0
+    # """
     # lr_scheduler = None
     if epoch == 0:
         warmup_factor = 1. / 1000
         warmup_iters = min(1000, len(data_loader) - 1)
 
         lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
+    # """
 
     for images, targets in metric_logger.log_every(data_loader, print_freq, header):
         images = list(image.to(device) for image in images)
@@ -65,13 +67,13 @@ def train_one_epoch2(model,loss_func, optimizer, data_loader, device, epoch, pri
 
     num_trains = len(data_loader.dataset)
     total_loss = 0.0
-
+    # """
     if epoch == 0:
         warmup_factor = 1. / 1000
         warmup_iters = min(1000, len(data_loader) - 1)
 
         lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
-
+    # """
     for idx,(images, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # images = list(image.to(device) for image in images)
         images = torch.stack(images, 0).to(device)
@@ -124,14 +126,14 @@ def train_one_epoch3(model, optimizer, data_loader, device, epoch, print_freq,wr
 
     num_trains = len(data_loader.dataset)
     total_loss = 0.0
-
+    # """
     # lr_scheduler = None
     if epoch == 0:
         warmup_factor = 1. / 1000
         warmup_iters = min(1000, len(data_loader) - 1)
 
         lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
-
+    # """
     for idx,(data, target) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # """
         # 按边长最大填充

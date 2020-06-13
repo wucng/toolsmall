@@ -1,4 +1,4 @@
-from data.datasets import PennFudanDataset,PascalVOCDataset
+from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset
 from data.augment import bboxAug
 from tools.visual.vis import vis_rect
 
@@ -23,9 +23,18 @@ def collate_fn(batch_data):
 
 def test_datasets():
     # """
-    root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
-    classes = ["person"]
-    typeOfData = "PennFudanDataset"
+    # root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
+    # classes = ["person"]
+    # typeOfData = "PennFudanDataset"
+
+
+    # root = r"/media/wucong/225A6D42D4FA828F1/datas/balloon_dataset/balloon/train"
+    # classes = ["balloon"]
+    # typeOfData = "BalloonDataset"
+
+    root = r"/media/wucong/225A6D42D4FA828F1/datas/data"
+    classes = ["date","fig","hazelnut"]
+    typeOfData = "FruitsNutsDataset"
     """
     root = "/media/wucong/225A6D42D4FA828F1/datas/voc/VOCdevkit/"
     classes = ["aeroplane", "bicycle", "bird", "boat",
@@ -42,13 +51,6 @@ def test_datasets():
     torch.manual_seed(seed)
     kwargs = {'num_workers': 5, 'pin_memory': True} if use_cuda else {}
 
-    if typeOfData == "PennFudanDataset":
-        Data = PennFudanDataset
-    elif typeOfData == "PascalVOCDataset":
-        Data = PascalVOCDataset
-    else:
-        Data = None
-
     train_transforms = bboxAug.Compose([
                # bboxAug.RandomChoice(),
                # bboxAug.RandomHorizontalFlip(),
@@ -64,6 +66,17 @@ def test_datasets():
                bboxAug.ToTensor(), # PIL --> tensor
                # bboxAug.Normalize() # tensor --> tensor
            ])
+
+    if typeOfData == "PennFudanDataset":
+        Data = PennFudanDataset
+    elif typeOfData == "PascalVOCDataset":
+        Data = PascalVOCDataset
+    elif typeOfData == "BalloonDataset":
+        Data = BalloonDataset
+    elif typeOfData == "FruitsNutsDataset":
+        Data = FruitsNutsDataset
+    else:
+        Data = None
 
     dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=True)
 
