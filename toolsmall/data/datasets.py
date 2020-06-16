@@ -74,6 +74,8 @@ class PennFudanDataset(object):
         self.imgs = list(sorted(os.listdir(os.path.join(root, "PNGImages"))))
         self.masks = list(sorted(os.listdir(os.path.join(root, "PedMasks"))))
         self.useMosaic = useMosaic
+        self.classes = classes
+        assert "person" in self.classes
 
     def load(self,idx):
         # load images ad masks
@@ -104,6 +106,7 @@ class PennFudanDataset(object):
         # get bounding box coordinates for each mask
         num_objs = len(obj_ids)
         boxes = []
+        labels = []
         for i in range(num_objs):  # mask反算对应的bbox
             pos = np.where(masks[i])  # 返回像素值为1 的索引，pos[0]对应行(y)，pos[1]对应列(x)
             xmin = np.min(pos[1])
@@ -111,10 +114,13 @@ class PennFudanDataset(object):
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
+            labels.append(self.classes.index("person"))
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
         # there is only one class
-        labels = torch.zeros((num_objs,), dtype=torch.int64)
+        # labels = torch.zeros((num_objs,), dtype=torch.int64)
+        # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
         # masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         return img,ori_mask, boxes, labels,img_path
@@ -589,6 +595,8 @@ class BalloonDataset(Dataset):
 
         self.transforms = transforms
         self.useMosaic = useMosaic
+        self.classes = classes
+        assert "balloon" in self.classes
 
     def __len__(self):
         return len(self.keys)
@@ -600,7 +608,7 @@ class BalloonDataset(Dataset):
 
         annos = tdata["regions"]
         boxes = []
-        # labels = []
+        labels = []
         # masks = []
         for _, anno in annos.items():
             assert not anno["region_attributes"]
@@ -611,10 +619,13 @@ class BalloonDataset(Dataset):
             poly = [p for x in poly for p in x]
 
             boxes.append([np.min(px), np.min(py), np.max(px), np.max(py)])
+            labels.append(self.classes.index("balloon"))
             # masks.append([poly])
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        labels = torch.zeros((boxes.size(0),), dtype=torch.int64)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        # labels = torch.zeros((boxes.size(0),), dtype=torch.int64)
+        # labels = torch.ones((boxes.size(0),), dtype=torch.int64) # 包括背景，背景默认为0
 
         return img,boxes,labels,img_path
 

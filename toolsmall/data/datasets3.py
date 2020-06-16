@@ -129,7 +129,8 @@ class PennFudanDataset(torch.utils.data.Dataset):
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         # there is only one class
-        labels = torch.ones((num_objs,), dtype=torch.int64)
+        # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
+        labels = torch.zeros((num_objs,), dtype=torch.int64) # 不包括背景
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         image_id = torch.tensor([idx])

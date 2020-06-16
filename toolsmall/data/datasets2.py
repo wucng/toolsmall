@@ -136,6 +136,7 @@ class FDDBDataset(Dataset):
         self.transforms = transforms
         self.classes=classes
         self.annotations=self.change2csv()
+        assert "face" in self.classes
 
     # 将注释文件转成csv格式：xxx/xxx.jpg x1,y1,x2,y2,label,...
     def change2csv(self):
@@ -190,7 +191,7 @@ class FDDBDataset(Dataset):
 
         for box in annotations["boxes"]:
             boxes.append(box[:4])
-            labels.append(0) # 只有1个类别
+            labels.append(self.classes.index("face"))
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
@@ -230,6 +231,7 @@ class WIDERFACEDataset(Dataset):
         self.transforms = transforms
         self.classes=classes
         self.annotations=self.change2csv()
+        assert "face" in self.classes
 
     # 将注释文件转成csv格式：xxx/xxx.jpg x1,y1,x2,y2,label,...
     def change2csv(self):
@@ -288,7 +290,7 @@ class WIDERFACEDataset(Dataset):
 
         for box in annotations["boxes"]:
             boxes.append(box[:4])
-            labels.append(0) # 只有1个类别
+            labels.append(self.classes.index("face"))
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
@@ -315,6 +317,9 @@ class PennFudanDataset(Dataset):
         # root=os.path.join(root,"PennFudanPed")
         self.root = root
         self.transforms = transforms
+        self.classes = classes
+        assert "person" in self.classes
+
         # load all image files, sorting them to
         # ensure that they are aligned
         # 确保imgs与masks相对应
@@ -348,6 +353,7 @@ class PennFudanDataset(Dataset):
         # get bounding box coordinates for each mask
         num_objs = len(obj_ids)
         boxes = []
+        labels = []
         for i in range(num_objs): # mask反算对应的bbox
             pos = np.where(masks[i]) # 返回像素值为1 的索引，pos[0]对应行(y)，pos[1]对应列(x)
             xmin = np.min(pos[1])
@@ -355,10 +361,13 @@ class PennFudanDataset(Dataset):
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
+            labels.append(self.classes.index("person"))
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
         # there is only one class
-        labels = torch.zeros((num_objs,), dtype=torch.int64)
+        # labels = torch.zeros((num_objs,), dtype=torch.int64)
+        # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         image_id = torch.tensor([idx])
