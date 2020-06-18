@@ -11,43 +11,16 @@ import numpy as np
 import torch
 from PIL import Image
 import random
-import cv2,json
+import cv2,json,math
 # from torchvision.datasets.voc import VOCDetection,VOCSegmentation
 # from torchvision.datasets.coco import CocoCaptions, CocoDetection
 from torch.utils.data import Dataset,DataLoader
 from torchvision.datasets.vision import VisionDataset
 from torchvision.datasets.voc import *
 
+from .augment.uils import glob_format,resize_boxes,random_affine,mosaic_resize,mosaic_crop,mosaic_origin,mixup
 
 __all__=["glob_format","PennFudanDataset","PascalVOCDataset","PascalVOCDataset","ValidDataset"]
-
-def glob_format(path,base_name = False):
-    #print('--------pid:%d start--------------' % (os.getpid()))
-    fmt_list = ('.jpg', '.jpeg', '.png',".xml")
-    fs = []
-    if not os.path.exists(path):return fs
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            item = os.path.join(root, file)
-            # item = unicode(item, encoding='utf8')
-            fmt = os.path.splitext(item)[-1]
-            if fmt.lower() not in fmt_list:
-                # os.remove(item)
-                continue
-            if base_name:fs.append(file)  # fs.append(os.path.splitext(file)[0])
-            else:fs.append(item)
-    #print('--------pid:%d end--------------' % (os.getpid()))
-    return fs
-
-def resize_boxes(boxes, original_size, new_size):
-    ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
-    ratio_height, ratio_width = ratios
-    xmin, ymin, xmax, ymax = boxes.unbind(1)
-    xmin = xmin * ratio_width
-    xmax = xmax * ratio_width
-    ymin = ymin * ratio_height
-    ymax = ymax * ratio_height
-    return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
 class PennFudanDataset(object):
     """
@@ -125,104 +98,6 @@ class PennFudanDataset(object):
 
         return img,ori_mask, boxes, labels,img_path
 
-    def mosaic(self,idx):
-        # 做马赛克数据增强，详情参考：yolov4
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 3 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        idx3 = index[idx + 2]
-        idx4 = index[idx + 3]
-
-        img,mask, boxes, labels,img_path = self.load(idx)
-        img2,mask2, boxes2, labels2,_ = self.load(idx2)
-        img3,mask3, boxes3, labels3,_ = self.load(idx3)
-        img4,mask4, boxes4, labels4,_ = self.load(idx4)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-        h3, w3, _ = img3.shape
-        h4, w4, _ = img4.shape
-
-        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
-        h = min((h1, h2, h3, h4))
-        w = min((w1, w2, w3, h4))
-        # h = max((h1, h2, h3, h4))//2
-        # w = max((w1, w2, w3, h4))//2
-
-        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
-        temp_masks = np.zeros((2 * h, 2 * w), np.uint8)
-        temp_boxes = []
-        temp_labels = []
-        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
-        temp_masks[0:h, 0:w] = cv2.resize(mask, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes, (h1, w1), (h, w)))
-        temp_labels.extend(labels)
-
-        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
-        temp_masks[0:h, w:] = cv2.resize(mask2, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
-        temp_labels.extend(labels2)
-
-        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
-        temp_masks[h:, 0:w] = cv2.resize(mask3, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
-        temp_labels.extend(labels3)
-
-        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
-        temp_masks[h:, w:] = cv2.resize(mask4, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
-        temp_labels.extend(labels4)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-        masks = temp_masks
-
-        return img,masks,boxes,labels,img_path
-
-    def mixup(self,idx):
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 1 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        img, mask, boxes, labels,img_path = self.load(idx)
-        img2, mask2, boxes2, labels2,_ = self.load(idx2)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-
-        h = max((h1, h2))
-        w = max((w1, w2))
-
-        temp_img1 = np.zeros((h, w, 3), np.uint8)
-        temp_img2 = np.zeros((h, w, 3), np.uint8)
-        temp_img1[:h1,:w1] = img
-        temp_img2[:h2,:w2] = img2
-
-        temp_mask1 = np.zeros((h, w), np.uint8)
-        temp_mask2 = np.zeros((h, w), np.uint8)
-        temp_mask1[:h1, :w1] = mask
-        temp_mask2[:h2, :w2] = mask2
-
-        temp_mask = np.clip(cv2.addWeighted(temp_mask1, 0.5, temp_mask2, 0.5, 0.0), 0, 255).astype(np.uint8)
-        temp_img = np.clip(cv2.addWeighted(temp_img1,0.5,temp_img2,0.5,0.0),0,255).astype(np.uint8)
-
-        temp_boxes = []
-        temp_labels = []
-        temp_boxes.extend(boxes)
-        temp_boxes.extend(boxes2)
-        temp_labels.extend(labels)
-        temp_labels.extend(labels2)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img,temp_mask,boxes, labels,img_path
-
     def __getitem__(self, idx):
         if self.useMosaic:
             # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
@@ -230,10 +105,12 @@ class PennFudanDataset(object):
             if state == "general":
                 img, masks, boxes, labels,img_path = self.load(idx)
             elif state == "ricap":
-                img, masks, boxes, labels,img_path = self.mosaic(idx)
+                # img, masks, boxes, labels,img_path = mosaic_origin(self,idx)
+                # img, masks, boxes, labels,img_path = mosaic_resize(self,idx)
+                img, masks, boxes, labels,img_path = mosaic_crop(self,idx)
             else:
                 pass
-                # img, masks, boxes, labels,img_path = self.mixup(idx)
+                # img, masks, boxes, labels,img_path = mixup(self,idx)
         else:
             img, masks, boxes, labels,img_path = self.load(idx)
 
@@ -461,108 +338,24 @@ class PascalVOCDataset(Dataset):
         labels = annotations["labels"]
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
-
-        return img,boxes,labels,img_path
-
-    def mosaic(self,idx):
-        # 做马赛克数据增强，详情参考：yolov4
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 3 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        idx3 = index[idx + 2]
-        idx4 = index[idx + 3]
-
-        img, boxes, labels,img_path = self.load(idx)
-        img2, boxes2, labels2,_ = self.load(idx2)
-        img3, boxes3, labels3,_ = self.load(idx3)
-        img4, boxes4, labels4,_ = self.load(idx4)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-        h3, w3, _ = img3.shape
-        h4, w4, _ = img4.shape
-
-        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
-        h = min((h1, h2, h3, h4))
-        w = min((w1, w2, w3, h4))
-        # h = max((h1, h2, h3, h4))//2
-        # w = max((w1, w2, w3, h4))//2
-
-        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
-        temp_boxes = []
-        temp_labels = []
-        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes, (h1, w1), (h, w)))
-        temp_labels.extend(labels)
-
-        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
-        temp_labels.extend(labels2)
-
-        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
-        temp_labels.extend(labels3)
-
-        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
-        temp_labels.extend(labels4)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img,boxes,labels,img_path
-
-    def mixup(self,idx):
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 1 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        img, boxes, labels,img_path = self.load(idx)
-        img2, boxes2, labels2,_ = self.load(idx2)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-
-        h = max((h1, h2))
-        w = max((w1, w2))
-
-        temp_img1 = np.zeros((h, w, 3), np.uint8)
-        temp_img2 = np.zeros((h, w, 3), np.uint8)
-        temp_img1[:h1,:w1] = img
-        temp_img2[:h2,:w2] = img2
-
-        temp_img = np.clip(cv2.addWeighted(temp_img1,0.5,temp_img2,0.5,0.0),0,255).astype(np.uint8)
-
-        temp_boxes = []
-        temp_labels = []
-        temp_boxes.extend(boxes)
-        temp_boxes.extend(boxes2)
-        temp_labels.extend(labels)
-        temp_labels.extend(labels2)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img, boxes, labels,img_path
+        mask = None
+        return img,mask,boxes,labels,img_path
 
     def __getitem__(self, idx):
         if self.useMosaic:
             # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
             state = np.random.choice(["general", "ricap"], 1)[0]
             if state == "general":
-                img, boxes, labels,img_path = self.load(idx)
+                img,mask, boxes, labels,img_path = self.load(idx)
             elif state == "ricap":
-                img, boxes, labels,img_path = self.mosaic(idx)
+                # img,mask,boxes, labels,img_path = mosaic_origin(self,idx)
+                img,mask,boxes, labels,img_path = mosaic_crop(self,idx)
+                # img,mask,boxes, labels,img_path = mosaic_resize(self,idx)
             else:
-                # img, boxes, labels,img_path = self.mixup(idx)
+                # img,mask,boxes, labels,img_path = mixup(self,idx)
                 pass
         else:
-            img, boxes, labels, img_path = self.load(idx)
+            img,mask,boxes, labels, img_path = self.load(idx)
 
         img = Image.fromarray(img)
         iscrowd = torch.zeros_like(labels,dtype=torch.float32)
@@ -601,7 +394,7 @@ class BalloonDataset(Dataset):
     def __len__(self):
         return len(self.keys)
 
-    def _load(self,idx):
+    def load(self,idx):
         tdata = self.imgs_anns[self.keys[idx]]
         img_path = os.path.join(os.path.dirname(self.json_file),tdata["filename"])
         img = np.asarray(Image.open(img_path).convert("RGB"), np.uint8)
@@ -626,109 +419,25 @@ class BalloonDataset(Dataset):
         labels = torch.as_tensor(labels, dtype=torch.int64)
         # labels = torch.zeros((boxes.size(0),), dtype=torch.int64)
         # labels = torch.ones((boxes.size(0),), dtype=torch.int64) # 包括背景，背景默认为0
+        mask = None
 
-        return img,boxes,labels,img_path
-
-    def _mosaic(self,idx):
-        # 做马赛克数据增强，详情参考：yolov4
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 3 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        idx3 = index[idx + 2]
-        idx4 = index[idx + 3]
-
-        img, boxes, labels,img_path = self._load(idx)
-        img2, boxes2, labels2,_ = self._load(idx2)
-        img3, boxes3, labels3,_ = self._load(idx3)
-        img4, boxes4, labels4,_ = self._load(idx4)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-        h3, w3, _ = img3.shape
-        h4, w4, _ = img4.shape
-
-        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
-        h = min((h1, h2, h3, h4))
-        w = min((w1, w2, w3, h4))
-        # h = max((h1, h2, h3, h4))//2
-        # w = max((w1, w2, w3, h4))//2
-
-        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
-        temp_boxes = []
-        temp_labels = []
-        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes, (h1, w1), (h, w)))
-        temp_labels.extend(labels)
-
-        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
-        temp_labels.extend(labels2)
-
-        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
-        temp_labels.extend(labels3)
-
-        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
-        temp_labels.extend(labels4)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img,boxes,labels,img_path
-
-    def _mixup(self,idx):
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 1 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        img, boxes, labels,img_path = self._load(idx)
-        img2, boxes2, labels2,_ = self._load(idx2)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-
-        h = max((h1, h2))
-        w = max((w1, w2))
-
-        temp_img1 = np.zeros((h, w, 3), np.uint8)
-        temp_img2 = np.zeros((h, w, 3), np.uint8)
-        temp_img1[:h1,:w1] = img
-        temp_img2[:h2,:w2] = img2
-
-        temp_img = np.clip(cv2.addWeighted(temp_img1,0.5,temp_img2,0.5,0.0),0,255).astype(np.uint8)
-
-        temp_boxes = []
-        temp_labels = []
-        temp_boxes.extend(boxes)
-        temp_boxes.extend(boxes2)
-        temp_labels.extend(labels)
-        temp_labels.extend(labels2)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img, boxes, labels,img_path
-
+        return img,mask,boxes,labels,img_path
 
     def __getitem__(self, idx):
         if self.useMosaic:
             # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
             state = np.random.choice(["general", "ricap"], 1)[0]
             if state == "general":
-                img, boxes, labels, img_path = self._load(idx)
+                img,mask,boxes, labels, img_path = self.load(idx)
             elif state == "ricap":
-                img, boxes, labels, img_path = self._mosaic(idx)
+                # img,mask, boxes, labels, img_path = mosaic_origin(self,idx)
+                # img,mask, boxes, labels, img_path = mosaic_resize(self,idx)
+                img,mask, boxes, labels, img_path = mosaic_crop(self,idx)
             else:
-                # img, boxes, labels,img_path = self._mixup(idx)
+                # img,mask, boxes, labels,img_path = mixup(self,idx)
                 pass
         else:
-            img, boxes, labels, img_path = self._load(idx)
+            img,mask, boxes, labels, img_path = self.load(idx)
 
         img = Image.fromarray(img)
         image_id = torch.tensor([idx])
@@ -779,8 +488,8 @@ class FruitsNutsDataset(Dataset):
         labels = annotations["labels"]
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
-
-        return img,boxes,labels,img_path
+        mask = None
+        return img,mask,boxes,labels,img_path
 
     def change_csv(self,imgs_anns):
         images_dict = {item["id"]: item["file_name"] for item in imgs_anns["images"]}
@@ -813,105 +522,21 @@ class FruitsNutsDataset(Dataset):
 
         return result
 
-    def mosaic(self,idx):
-        # 做马赛克数据增强，详情参考：yolov4
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 3 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        idx3 = index[idx + 2]
-        idx4 = index[idx + 3]
-
-        img, boxes, labels,img_path = self.load(idx)
-        img2, boxes2, labels2,_ = self.load(idx2)
-        img3, boxes3, labels3,_ = self.load(idx3)
-        img4, boxes4, labels4,_ = self.load(idx4)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-        h3, w3, _ = img3.shape
-        h4, w4, _ = img4.shape
-
-        # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
-        h = min((h1, h2, h3, h4))
-        w = min((w1, w2, w3, h4))
-        # h = max((h1, h2, h3, h4))//2
-        # w = max((w1, w2, w3, h4))//2
-
-        temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
-        temp_boxes = []
-        temp_labels = []
-        temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes, (h1, w1), (h, w)))
-        temp_labels.extend(labels)
-
-        temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
-        temp_labels.extend(labels2)
-
-        temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
-        temp_labels.extend(labels3)
-
-        temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
-        temp_boxes.extend(resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
-        temp_labels.extend(labels4)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img,boxes,labels,img_path
-
-    def mixup(self,idx):
-        index = torch.randperm(self.__len__()).tolist()
-        if idx + 1 >= self.__len__():
-            idx = 0
-
-        idx2 = index[idx + 1]
-        img, boxes, labels,img_path = self.load(idx)
-        img2, boxes2, labels2,_ = self.load(idx2)
-
-        h1, w1, _ = img.shape
-        h2, w2, _ = img2.shape
-
-        h = max((h1, h2))
-        w = max((w1, w2))
-
-        temp_img1 = np.zeros((h, w, 3), np.uint8)
-        temp_img2 = np.zeros((h, w, 3), np.uint8)
-        temp_img1[:h1,:w1] = img
-        temp_img2[:h2,:w2] = img2
-
-        temp_img = np.clip(cv2.addWeighted(temp_img1,0.5,temp_img2,0.5,0.0),0,255).astype(np.uint8)
-
-        temp_boxes = []
-        temp_labels = []
-        temp_boxes.extend(boxes)
-        temp_boxes.extend(boxes2)
-        temp_labels.extend(labels)
-        temp_labels.extend(labels2)
-
-        img = temp_img
-        boxes = torch.stack(temp_boxes, 0).float()
-        labels = torch.as_tensor(temp_labels, dtype=torch.long)
-
-        return img, boxes, labels,img_path
-
     def __getitem__(self, idx):
         if self.useMosaic:
             # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
             state = np.random.choice(["general", "ricap"], 1)[0]
             if state == "general":
-                img, boxes, labels, img_path = self.load(idx)
+                img,mask,boxes, labels, img_path = self.load(idx)
             elif state == "ricap":
-                img, boxes, labels, img_path = self.mosaic(idx)
+                # img,mask, boxes, labels, img_path = mosaic_origin(self,idx)
+                # img,mask, boxes, labels, img_path = mosaic_resize(self,idx)
+                img,mask, boxes, labels, img_path = mosaic_crop(self,idx)
             else:
-                # img, boxes, labels,img_path = self.mixup(idx)
+                # img,mask, boxes, labels,img_path = mixup(self,idx)
                 pass
         else:
-            img, boxes, labels, img_path = self.load(idx)
+            img,mask, boxes, labels, img_path = self.load(idx)
 
         img = Image.fromarray(img)
         iscrowd = torch.zeros_like(labels, dtype=torch.float32)

@@ -662,3 +662,38 @@ def build_optimizer2(model: torch.nn.Module,base_lr:float=2.5e-4,
     # optimizer = torch.optim.AdamW(params, base_lr, weight_decay=weight_decay)
 
     return optimizer
+
+# ------------------https://github.com/ultralytics/yolov3---------------------------------------------
+import math
+
+def build_lr_scheduler_ultralytics(optimizer,start_epoch=0,epochs=100):
+    # Scheduler https://arxiv.org/pdf/1812.01187.pdf
+    lf = lambda x: (((1 + math.cos(x * math.pi / epochs)) / 2) ** 1.0) * 0.95 + 0.05  # cosine
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+    scheduler.last_epoch = start_epoch - 1  # see link below
+    # https://discuss.pytorch.org/t/a-problem-occured-when-resuming-an-optimizer/28822
+    return scheduler
+
+def build_optimzer_ultralytics(model,hyp={},useAdam=False):
+    # Optimizer
+    pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
+    for k, v in dict(model.named_parameters()).items():
+        if '.bias' in k:
+            pg2 += [v]  # biases
+        elif 'Conv2d.weight' in k:
+            pg1 += [v]  # apply weight_decay
+        else:
+            pg0 += [v]  # all else
+
+    if useAdam:
+        # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)
+        optimizer = torch.optim.Adam(pg0, lr=hyp['lr0'])
+        # optimizer = AdaBound(pg0, lr=hyp['lr0'], final_lr=0.1)
+    else:
+        optimizer = torch.optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
+    optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
+    optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
+    print('Optimizer groups: %g .bias, %g Conv2d.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
+    del pg0, pg1, pg2
+
+    return optimizer

@@ -167,22 +167,13 @@ class Resize(object):
         if "boxes" in target:
             boxes = target["boxes"]
 
-            boxes = self.resize_boxes(boxes,original_size,self.size)
+            boxes = resize_boxes(boxes,original_size,self.size)
 
             target["boxes"] = boxes
         return PIL.Image.fromarray(img), target
 
-    def resize_boxes(self,boxes, original_size, new_size):
-        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
-        ratio_height, ratio_width = ratios
-        xmin, ymin, xmax, ymax = boxes.unbind(1)
-        xmin = xmin * ratio_width
-        xmax = xmax * ratio_width
-        ymin = ymin * ratio_height
-        ymax = ymax * ratio_height
-        return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
-class Resize2(object):
+class ResizeAndPad(object):
     """先按比例resize，再pad"""
     def __init__(self,size=(224,224),multi_scale=False):
         self.size = size
@@ -222,7 +213,7 @@ class Resize2(object):
 
         if "boxes" in target:
             boxes = target["boxes"]
-            boxes = Resize().resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
+            boxes = resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
             target["boxes"] = boxes
 
         # pad
@@ -266,10 +257,223 @@ class ResizeMinMax(object):
 
         if "boxes" in target:
             boxes = target["boxes"]
-            boxes = Resize().resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
+            boxes = resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
             target["boxes"] = boxes
 
-        return img,target
+        return PIL.Image.fromarray(img),target
+
+
+class ResizeFix(object):
+    """按最小边填充"""
+    def __init__(self,size=512):
+        self.size = size
+
+    def __call__(self, img,target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+        img = np.asarray(img)
+        img_h, img_w = img.shape[:2]
+
+        target["original_size"] = torch.as_tensor((img_h, img_w),dtype=torch.float32)
+
+        scale = self.size/max(img_w, img_h)
+
+        new_w = int(scale * img_w)
+        new_h = int(scale * img_h)
+
+        target["resize"] = torch.as_tensor((new_h,new_w,scale), dtype=torch.float32)
+
+        # img = scipy.misc.imresize(img, [new_h,new_w], 'bicubic')  # or 'cubic'
+        img = cv2.resize(img,(new_w,new_h),interpolation=cv2.INTER_CUBIC)
+
+        if "boxes" in target:
+            boxes = target["boxes"]
+            boxes = resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
+            target["boxes"] = boxes
+
+        return PIL.Image.fromarray(img),target
+
+
+class ResizeFixAndPad(object):
+    """
+    将长边填充到固定值，短边随机填充到32的倍数, Resize image to a 32-pixel-multiple rectangle
+    """
+    def __init__(self,new_shape=512,color=(114, 114, 114),auto=True, scaleFill=False, scaleup=True):
+        self.new_shape = new_shape
+        self.color = color
+        self.auto = auto
+        self.scaleFill = scaleFill
+        self.scaleup = scaleup
+
+    def __call__(self, img, target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+        img = np.asarray(img)
+        # Resize image to a 32-pixel-multiple rectangle https://github.com/ultralytics/yolov3/issues/232
+        shape = img.shape[:2]  # current shape [height, width]
+        if isinstance(self.new_shape, int):
+            self.new_shape = (self.new_shape, self.new_shape)
+
+        target["original_size"] = torch.as_tensor(shape, dtype=torch.float32)
+
+        # Scale ratio (new / old)
+        r = min(self.new_shape[0] / shape[0], self.new_shape[1] / shape[1])
+        if not self.scaleup:  # only scale down, do not scale up (for better test mAP)
+            r = min(r, 1.0)
+
+        # Compute padding
+        ratio = r, r  # width, height ratios
+        new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+        dw, dh = self.new_shape[1] - new_unpad[0], self.new_shape[0] - new_unpad[1]  # wh padding
+        if self.auto:  # minimum rectangle
+            dw, dh = np.mod(dw, 64), np.mod(dh, 64)  # wh padding
+        elif self.scaleFill:  # stretch
+            dw, dh = 0.0, 0.0
+            new_unpad = new_shape
+            ratio = new_shape[0] / shape[1], new_shape[1] / shape[0]  # width, height ratios
+
+        dw /= 2  # divide padding into 2 sides
+        dh /= 2
+
+        if shape[::-1] != new_unpad:  # resize
+            img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+            if "boxes" in target:
+                target["boxes"] = resize_boxes(target["boxes"], shape, new_unpad[::-1])
+        top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+        left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=self.color)  # add border
+        if "boxes" in target:
+            target["boxes"] = target["boxes"] + torch.tensor([left, top, left, top]).unsqueeze(0)
+        # return img, ratio, (dw, dh)
+
+        target["resize"] = torch.as_tensor((new_unpad[1], new_unpad[0], left,top,right,bottom), dtype=torch.float32)
+
+        return PIL.Image.fromarray(img), target
+
+
+class RandomHSV(object):
+    def __init__(self,p=0.5,hgain=0.5, sgain=0.5, vgain=0.5):
+        self.hgain = hgain
+        self.sgain = sgain
+        self.vgain = vgain
+        self.p = p
+
+    def __call__(self,img,target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+        if random.random() < self.p:
+            img = np.asarray(img,np.uint8)
+            r = np.random.uniform(-1, 1, 3) * [self.hgain, self.sgain, self.vgain] + 1  # random gains
+            hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
+            dtype = img.dtype  # uint8
+
+            x = np.arange(0, 256, dtype=np.int16)
+            lut_hue = ((x * r[0]) % 180).astype(dtype)
+            lut_sat = np.clip(x * r[1], 0, 255).astype(dtype)
+            lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
+
+            img_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))).astype(dtype)
+            cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
+
+            # Histogram equalization
+            # if random.random() < 0.2:
+            #     for i in range(3):
+            #         img[:, :, i] = cv2.equalizeHist(img[:, :, i])
+
+            return PIL.Image.fromarray(img),target
+        else:
+            return img,target
+
+class RandomCutout(object):
+    """
+    # https://arxiv.org/abs/1708.04552
+    # https://github.com/hysts/pytorch_cutout/blob/master/dataloader.py
+    # https://towardsdatascience.com/when-conventional-wisdom-fails-revisiting-data-augmentation-for-self-driving-cars-4831998c5509
+    """
+    def __init__(self,p=0.5,thres_iou=0.6):
+        self.p = p
+        self.thres_iou = thres_iou
+
+    def __call__(self,img,target):
+        """
+        :param image: PIL image
+        :param target: Tensor
+        :return:
+                image: PIL image
+                target: Tensor
+        """
+
+        def bbox_ioa(box1, box2):
+            # Returns the intersection over box2 area given box1, box2. box1 is 4, box2 is nx4. boxes are x1y1x2y2
+            box2 = box2.transpose()
+
+            # Get the coordinates of bounding boxes
+            b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
+            b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
+
+            # Intersection area
+            inter_area = (np.minimum(b1_x2, b2_x2) - np.maximum(b1_x1, b2_x1)).clip(0) * \
+                         (np.minimum(b1_y2, b2_y2) - np.maximum(b1_y1, b2_y1)).clip(0)
+
+            # box2 area
+            box2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1) + 1e-16
+
+            # Intersection over box2 area
+            return inter_area / box2_area
+
+        if random.random() < self.p:
+            img = np.asarray(img,np.uint8)
+            img2 = img.copy()
+            img = img2
+            h, w = img.shape[:2]
+
+            # create random masks
+            scales = [0.5] * 1 + [0.25] * 2 + [0.125] * 4 + [0.0625] * 8 + [0.03125] * 16  # image size fraction
+            for s in scales:
+                mask_h = random.randint(1, int(h * s))
+                mask_w = random.randint(1, int(w * s))
+
+                # box
+                xmin = max(0, random.randint(0, w) - mask_w // 2)
+                ymin = max(0, random.randint(0, h) - mask_h // 2)
+                xmax = min(w, xmin + mask_w)
+                ymax = min(h, ymin + mask_h)
+
+                # apply random color mask
+                img[ymin:ymax, xmin:xmax] = [random.randint(64, 191) for _ in range(3)]
+
+                gt_boxes = target["boxes"]
+                labels = target["labels"]
+
+                # return unobscured labels
+                if len(labels) and s > 0.03:
+                    box = np.array([xmin, ymin, xmax, ymax], dtype=np.float32)
+                    ioa = bbox_ioa(box, gt_boxes.numpy())  # intersection over area
+                    labels = labels[ioa < self.thres_iou]  # remove >60% obscured labels
+                    gt_boxes = gt_boxes[ioa < self.thres_iou]
+                    if len(labels)>0:
+                        target["boxes"] = gt_boxes
+                        target["labels"] = labels
+
+            return PIL.Image.fromarray(img),target
+        else:
+            return img,target
+
 
 
 class RandomDrop(object):

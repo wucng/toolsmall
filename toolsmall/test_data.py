@@ -62,7 +62,10 @@ def test_datasets():
                # bboxAug.RandomTranslate(),
                # bboxAug.Augment(False),
                # bboxAug.Pad(), bboxAug.Resize((416,416), False),
-               # bboxAug.ResizeMinMax(800,1333),
+               bboxAug.ResizeMinMax(800,1333),
+               # bboxAug.ResizeFixAndPad(),
+               # bboxAug.RandomHSV(),
+               # bboxAug.RandomCutout(),
                bboxAug.ToTensor(), # PIL --> tensor
                # bboxAug.Normalize() # tensor --> tensor
            ])

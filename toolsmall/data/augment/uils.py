@@ -4,7 +4,7 @@ try:
     from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 except:
     pass
-import cv2
+import cv2,os
 import numpy as np
 import random
 import torch
@@ -12,6 +12,7 @@ import PIL.Image
 from PIL import Image
 from torchvision.transforms import functional as F
 from torch.nn import functional as F2
+import math
 
 def run_seq():
     # Sometimes(0.5, ...) applies the given augmenter in 50% of all cases,
@@ -484,3 +485,362 @@ def BGR2HSV(img):
 
 def HSV2BGR(img):
     return cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
+
+
+def glob_format(path,base_name = False):
+    #print('--------pid:%d start--------------' % (os.getpid()))
+    fmt_list = ('.jpg', '.jpeg', '.png',".xml")
+    fs = []
+    if not os.path.exists(path):return fs
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            item = os.path.join(root, file)
+            # item = unicode(item, encoding='utf8')
+            fmt = os.path.splitext(item)[-1]
+            if fmt.lower() not in fmt_list:
+                # os.remove(item)
+                continue
+            if base_name:fs.append(file)  # fs.append(os.path.splitext(file)[0])
+            else:fs.append(item)
+    #print('--------pid:%d end--------------' % (os.getpid()))
+    return fs
+
+def resize_boxes(boxes, original_size, new_size):
+    ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
+    ratio_height, ratio_width = ratios
+    xmin, ymin, xmax, ymax = boxes.unbind(1)
+    xmin = xmin * ratio_width
+    xmax = xmax * ratio_width
+    ymin = ymin * ratio_height
+    ymax = ymax * ratio_height
+    return torch.stack((xmin, ymin, xmax, ymax), dim=1)
+
+def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10, border=0):
+    # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
+    # https://medium.com/uruvideo/dataset-augmentation-with-random-homographies-a8f4b44830d4
+    # targets = [cls, xyxy]
+
+    height = img.shape[0] + border * 2
+    width = img.shape[1] + border * 2
+
+    # Rotation and Scale
+    R = np.eye(3)
+    a = random.uniform(-degrees, degrees)
+    # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+    s = random.uniform(1 - scale, 1 + scale)
+    # s = 2 ** random.uniform(-scale, scale)
+    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(img.shape[1] / 2, img.shape[0] / 2), scale=s)
+
+    # Translation
+    T = np.eye(3)
+    T[0, 2] = random.uniform(-translate, translate) * img.shape[0] + border  # x translation (pixels)
+    T[1, 2] = random.uniform(-translate, translate) * img.shape[1] + border  # y translation (pixels)
+
+    # Shear
+    S = np.eye(3)
+    S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
+    S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
+
+    # Combined rotation matrix
+    M = S @ T @ R  # ORDER IS IMPORTANT HERE!!
+    if (border != 0) or (M != np.eye(3)).any():  # image changed
+        img = cv2.warpAffine(img, M[:2], dsize=(width, height), flags=cv2.INTER_LINEAR, borderValue=(114, 114, 114))
+
+    # Transform label coordinates
+    n = len(targets)
+    if n:
+        # warp points
+        xy = np.ones((n * 4, 3))
+        xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
+        xy = (xy @ M.T)[:, :2].reshape(n, 8)
+
+        # create new boxes
+        x = xy[:, [0, 2, 4, 6]]
+        y = xy[:, [1, 3, 5, 7]]
+        xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+
+        # # apply angle-based reduction of bounding boxes
+        # radians = a * math.pi / 180
+        # reduction = max(abs(math.sin(radians)), abs(math.cos(radians))) ** 0.5
+        # x = (xy[:, 2] + xy[:, 0]) / 2
+        # y = (xy[:, 3] + xy[:, 1]) / 2
+        # w = (xy[:, 2] - xy[:, 0]) * reduction
+        # h = (xy[:, 3] - xy[:, 1]) * reduction
+        # xy = np.concatenate((x - w / 2, y - h / 2, x + w / 2, y + h / 2)).reshape(4, n).T
+
+        # reject warped points outside of image
+        xy[:, [0, 2]] = xy[:, [0, 2]].clip(0, width)
+        xy[:, [1, 3]] = xy[:, [1, 3]].clip(0, height)
+        w = xy[:, 2] - xy[:, 0]
+        h = xy[:, 3] - xy[:, 1]
+        area = w * h
+        area0 = (targets[:, 3] - targets[:, 1]) * (targets[:, 4] - targets[:, 2])
+        ar = np.maximum(w / (h + 1e-16), h / (w + 1e-16))  # aspect ratio
+        i = (w > 4) & (h > 4) & (area / (area0 * s + 1e-16) > 0.2) & (ar < 10)
+
+        targets = targets[i]
+        targets[:, 1:5] = xy[i]
+
+    return img, targets
+
+def mosaic_resize(self,idx):
+    # 做马赛克数据增强，详情参考：yolov4
+    # 做resize
+    index = torch.randperm(self.__len__()).tolist()
+    if idx + 3 >= self.__len__():
+        idx = 0
+
+    idx2 = index[idx + 1]
+    idx3 = index[idx + 2]
+    idx4 = index[idx + 3]
+
+    img,mask, boxes, labels,img_path = self.load(idx)
+    img2,mask2, boxes2, labels2,_ = self.load(idx2)
+    img3,mask3, boxes3, labels3,_ = self.load(idx3)
+    img4,mask4, boxes4, labels4,_ = self.load(idx4)
+
+    h1, w1, _ = img.shape
+    h2, w2, _ = img2.shape
+    h3, w3, _ = img3.shape
+    h4, w4, _ = img4.shape
+
+    # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
+    h = min((h1, h2, h3, h4))
+    w = min((w1, w2, w3, h4))
+    # h = max((h1, h2, h3, h4))//2
+    # w = max((w1, w2, w3, h4))//2
+
+    temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
+    if mask is not None:temp_masks = np.zeros((2 * h, 2 * w), np.uint8)
+    temp_boxes = []
+    temp_labels = []
+    temp_img[0:h, 0:w] = cv2.resize(img, (w, h), interpolation=cv2.INTER_BITS)
+    if mask is not None:temp_masks[0:h, 0:w] = cv2.resize(mask, (w, h), interpolation=cv2.INTER_BITS)
+    temp_boxes.extend(resize_boxes(boxes, (h1, w1), (h, w)))
+    temp_labels.extend(labels)
+
+    temp_img[0:h, w:] = cv2.resize(img2, (w, h), interpolation=cv2.INTER_BITS)
+    if mask is not None:temp_masks[0:h, w:] = cv2.resize(mask2, (w, h), interpolation=cv2.INTER_BITS)
+    temp_boxes.extend(resize_boxes(boxes2, (h2, w2), (h, w)).add_(torch.tensor([w, 0, w, 0]).unsqueeze(0)))
+    temp_labels.extend(labels2)
+
+    temp_img[h:, 0:w] = cv2.resize(img3, (w, h), interpolation=cv2.INTER_BITS)
+    if mask is not None:temp_masks[h:, 0:w] = cv2.resize(mask3, (w, h), interpolation=cv2.INTER_BITS)
+    temp_boxes.extend(resize_boxes(boxes3, (h3, w3), (h, w)).add_(torch.tensor([0, h, 0, h]).unsqueeze(0)))
+    temp_labels.extend(labels3)
+
+    temp_img[h:, w:] = cv2.resize(img4, (w, h), interpolation=cv2.INTER_BITS)
+    if mask is not None:temp_masks[h:, w:] = cv2.resize(mask4, (w, h), interpolation=cv2.INTER_BITS)
+    temp_boxes.extend(resize_boxes(boxes4, (h4, w4), (h, w)).add_(torch.tensor([w, h, w, h]).unsqueeze(0)))
+    temp_labels.extend(labels4)
+
+    img = temp_img
+    boxes = torch.stack(temp_boxes, 0).float()
+    labels = torch.as_tensor(temp_labels, dtype=torch.long)
+    if mask is not None:mask = temp_masks
+
+    return img,mask,boxes,labels,img_path
+
+def mosaic_crop(self,idx):
+    # 做马赛克数据增强，详情参考：yolov4
+    # 做裁剪
+    min_pixes = 20
+    index = torch.randperm(self.__len__()).tolist()
+    if idx + 3 >= self.__len__():
+        idx = 0
+
+    idx2 = index[idx + 1]
+    idx3 = index[idx + 2]
+    idx4 = index[idx + 3]
+
+    img, mask, boxes, labels, img_path = self.load(idx)
+    img2, mask2, boxes2, labels2, _ = self.load(idx2)
+    img3, mask3, boxes3, labels3, _ = self.load(idx3)
+    img4, mask4, boxes4, labels4, _ = self.load(idx4)
+
+    h1, w1, _ = img.shape
+    h2, w2, _ = img2.shape
+    h3, w3, _ = img3.shape
+    h4, w4, _ = img4.shape
+
+    # img 取左上角,img2 右上角,img3 左下角,img4 右下角合成一张新图
+    # h = min((h1, h2, h3, h4))
+    # w = min((w1, w2, w3, h4))
+    h = max((h1, h2, h3, h4))
+    w = max((w1, w2, w3, h4))
+
+    xc = int(random.uniform(w * 0.5, w * 1.5)) # mosaic center x, y
+    yc = int(random.uniform(h * 0.5, h * 1.5))
+    # xc = int(random.uniform(w * 0.3, w * 0.8))  # mosaic center x, y
+    # yc = int(random.uniform(h * 0.3, h * 0.8))
+
+    # temp_img = np.zeros((2 * h, 2 * w, 3), np.uint8)
+    temp_labels = []
+    temp_boxes = []
+
+    dy1 = min(yc,h1,h2)
+    dx1 = min(xc,w1,w3)
+
+    dy2 = min(dy1+h3,dy1+h4,2*h)
+    dx2 = min(dx1+w2,dx1+w4,2*w)
+    # dy2 = min(dy1 + h3, dy1 + h4, h)
+    # dx2 = min(dx1 + w2, dx1 + w4, w)
+
+    temp_img = np.zeros((dy2, dx2, 3), np.uint8)
+    if mask is not None:temp_masks = np.zeros((dy2, dx2), np.uint8)
+
+    temp_img[0:dy1,0:dx1] = img[0:dy1,0:dx1]
+    if mask is not None:temp_masks[0:dy1,0:dx1] = mask[0:dy1,0:dx1]
+    boxes[..., [0, 2]] = boxes[..., [0, 2]].clamp(0, dx1)
+    boxes[..., [1, 3]] = boxes[..., [1, 3]].clamp(0, dy1)
+    keep = (boxes[..., 2:] - boxes[..., :2] > min_pixes).sum(-1) == 2
+    boxes = boxes[keep]
+    labels = labels[keep]
+    temp_boxes.extend(boxes.add_(torch.tensor([0, 0, 0, 0]).unsqueeze(0)))
+    temp_labels.extend(labels)
+
+    temp_img[0:dy1, dx1:dx2] = img2[0:dy1, 0:dx2-dx1]
+    if mask is not None: temp_masks[0:dy1, dx1:dx2] = mask2[0:dy1, 0:dx2-dx1]
+    boxes2[..., [0, 2]] = boxes2[..., [0, 2]].clamp(0, dx2-dx1)
+    boxes2[..., [1, 3]] = boxes2[..., [1, 3]].clamp(0, dy1)
+    keep = (boxes2[..., 2:] - boxes2[..., :2] > min_pixes).sum(-1) == 2
+    boxes2 = boxes2[keep]
+    labels2 = labels2[keep]
+    temp_boxes.extend(boxes2.add_(torch.tensor([dx1, 0, dx1, 0]).unsqueeze(0)))
+    temp_labels.extend(labels2)
+
+    temp_img[dy1:dy2, 0:dx1] = img3[0:dy2-dy1, 0:dx1]
+    if mask is not None: temp_masks[dy1:dy2, 0:dx1] = mask3[0:dy2-dy1, 0:dx1]
+    boxes3[..., [0, 2]] = boxes3[..., [0, 2]].clamp(0, dx1)
+    boxes3[..., [1, 3]] = boxes3[..., [1, 3]].clamp(0, dy2-dy1)
+    keep = (boxes3[..., 2:] - boxes3[..., :2] > min_pixes).sum(-1) == 2
+    boxes3 = boxes3[keep]
+    labels3 = labels3[keep]
+    temp_boxes.extend(boxes3.add_(torch.tensor([0, dy1, 0, dy1]).unsqueeze(0)))
+    temp_labels.extend(labels3)
+
+    temp_img[dy1:dy2, dx1:dx2] = img4[0:dy2 - dy1, 0:dx2-dx1]
+    if mask is not None: temp_masks[dy1:dy2, dx1:dx2] = mask4[0:dy2 - dy1, 0:dx2-dx1]
+    boxes4[..., [0, 2]] = boxes4[..., [0, 2]].clamp(0, dx2-dx1)
+    boxes4[..., [1, 3]] = boxes4[..., [1, 3]].clamp(0, dy2 - dy1)
+    keep = (boxes4[..., 2:] - boxes4[..., :2] > min_pixes).sum(-1) == 2
+    boxes4 = boxes4[keep]
+    labels4 = labels4[keep]
+    temp_boxes.extend(boxes4.add_(torch.tensor([dx1, dy1, dx1, dy1]).unsqueeze(0)))
+    temp_labels.extend(labels4)
+
+    if len(temp_labels)>0:
+        img = temp_img
+        boxes = torch.stack(temp_boxes, 0).float()
+        labels = torch.as_tensor(temp_labels, dtype=torch.long)
+        if mask is not None:mask = temp_masks
+    else:
+        img, mask, boxes, labels, img_path = self.load(idx)
+
+    return img, mask, boxes, labels, img_path
+
+def mosaic_origin(self,index):
+    self.hyp={
+        'degrees': 1.98 * 0,  # image rotation (+/- deg)
+        'translate': 0.05 * 0,  # image translation (+/- fraction)
+        'scale': 0.05 * 0,  # image scale (+/- gain)
+        'shear': 0.641 * 0}  # image shear (+/- deg)
+
+    img, mask, _, _, img_path = self.load(index)
+
+    labels4 = []
+    s = max(img.shape[:2])
+    xc, yc = [int(random.uniform(s * 0.5, s * 1.5)) for _ in range(2)]  # mosaic center x, y
+    indices = [index] + [random.randint(0, self.__len__() - 1) for _ in range(3)]  # 3 additional image indices
+    for i, index in enumerate(indices):
+        img,mask, boxes, labels,_ = self.load(index)
+
+        h, w = img.shape[:2]
+        labels = torch.cat((labels.float().unsqueeze(-1),boxes),-1)
+
+        # place img in img4
+        if i == 0:  # top left
+            img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+            if mask is not None: temp_masks = np.zeros((s * 2, s * 2), np.uint8)
+            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
+            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+        elif i == 1:  # top right
+            x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
+            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+        elif i == 2:  # bottom left
+            x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
+            x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, max(xc, w), min(y2a - y1a, h)
+        elif i == 3:  # bottom right
+            x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
+            x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+
+        img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+        if mask is not None:temp_masks[y1a:y2a, x1a:x2a] = mask[y1b:y2b, x1b:x2b]
+        padw = x1a - x1b
+        padh = y1a - y1b
+        if len(labels)>0:
+            labels = labels+torch.tensor([0,padw,padh,padw,padh]).unsqueeze(0)
+        labels4.append(labels.numpy())
+
+    # Concat/clip labels
+    if len(labels4):
+        labels4 = np.concatenate(labels4, 0)
+        # np.clip(labels4[:, 1:] - s / 2, 0, s, out=labels4[:, 1:])  # use with center crop
+        np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_affine
+
+    # Augment
+    # img4 = img4[s // 2: int(s * 1.5), s // 2:int(s * 1.5)]  # center crop (WARNING, requires box pruning)
+    img4, labels4 = random_affine(img4, labels4,
+                                  degrees=self.hyp['degrees'],
+                                  translate=self.hyp['translate'],
+                                  scale=self.hyp['scale'],
+                                  shear=self.hyp['shear'],
+                                  border=-s // 2)  # border to remove
+
+
+    boxes = torch.tensor(labels4[:,1:]).float()
+    labels = torch.as_tensor(labels4[:,0], dtype=torch.long)
+    if mask is not None:mask=temp_masks
+    return img4,mask,boxes,labels,img_path
+
+def mixup(self,idx):
+    index = torch.randperm(self.__len__()).tolist()
+    if idx + 1 >= self.__len__():
+        idx = 0
+
+    idx2 = index[idx + 1]
+    img, mask, boxes, labels,img_path = self.load(idx)
+    img2, mask2, boxes2, labels2,_ = self.load(idx2)
+
+    h1, w1, _ = img.shape
+    h2, w2, _ = img2.shape
+
+    h = max((h1, h2))
+    w = max((w1, w2))
+
+    temp_img1 = np.zeros((h, w, 3), np.uint8)
+    temp_img2 = np.zeros((h, w, 3), np.uint8)
+    temp_img1[:h1,:w1] = img
+    temp_img2[:h2,:w2] = img2
+
+    if mask is not None:
+        temp_mask1 = np.zeros((h, w), np.uint8)
+        temp_mask2 = np.zeros((h, w), np.uint8)
+        temp_mask1[:h1, :w1] = mask
+        temp_mask2[:h2, :w2] = mask2
+
+    if mask is not None:temp_mask = np.clip(cv2.addWeighted(temp_mask1, 0.5, temp_mask2, 0.5, 0.0), 0, 255).astype(np.uint8)
+    temp_img = np.clip(cv2.addWeighted(temp_img1,0.5,temp_img2,0.5,0.0),0,255).astype(np.uint8)
+
+    temp_boxes = []
+    temp_labels = []
+    temp_boxes.extend(boxes)
+    temp_boxes.extend(boxes2)
+    temp_labels.extend(labels)
+    temp_labels.extend(labels2)
+
+    img = temp_img
+    boxes = torch.stack(temp_boxes, 0).float()
+    labels = torch.as_tensor(temp_labels, dtype=torch.long)
+    if mask is not None:mask=temp_mask
+    return img,mask,boxes, labels,img_path
