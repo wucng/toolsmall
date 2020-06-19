@@ -345,7 +345,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
     输入图像大小 416 , imgs Tensor[bs,3,416,416] /255. --> 0.~1.
     13=416//32, 26=416//16, 52=416//8
     :param p:  list[Tensor[bs,3,13,13,5+n_cls],Tensor[bs,3,26,26,5+n_cls],Tensor[bs,3,52,52,5+n_cls]]
-                    3 先验anchor个数, 5+n_cls [obj,x,y,w,h,class,...] one_hot class
+                    3 先验anchor个数, 5+n_cls [x,y,w,h,conf,class,...] one_hot class
     :param targets:Tensor[m,6]  ,6 [bs_id,label,x,y,w,h], x,y,w,h 除以输入图像大小 缩减到 0.~1.
     :param model:
     :return:
