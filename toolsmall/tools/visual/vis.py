@@ -223,6 +223,67 @@ def vis_keypoints(img, kps, kp_thresh=2, alpha=0.7):
     # Blend the keypoints.
     return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
 
+
+def vis_keypoints2(img, kps,kp_thresh=2,alpha=0.7):
+    """自定义"""
+
+    kp_mask = np.copy(img)
+    dataset_keypoints, _ = get_keypoints()
+    kp_lines = kp_connections(dataset_keypoints)
+
+    # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
+    cmap = plt.get_cmap('rainbow')
+    colors = [cmap(i) for i in np.linspace(0, 1, len(kp_lines) + 2)]
+    colors = [(c[2] * 255, c[1] * 255, c[0] * 255) for c in colors]
+
+    # Draw the keypoints.
+    for kp in kps:
+        # Draw mid shoulder / mid hip first for better visualization.
+        mid_shoulder = (
+                       kp[:2, dataset_keypoints.index('right_shoulder')] +
+                       kp[:2, dataset_keypoints.index('left_shoulder')]) / 2.0
+        sc_mid_shoulder = np.minimum(
+            kp[2, dataset_keypoints.index('right_shoulder')],
+            kp[2, dataset_keypoints.index('left_shoulder')])
+        mid_hip = (
+                  kp[:2, dataset_keypoints.index('right_hip')] +
+                  kp[:2, dataset_keypoints.index('left_hip')]) / 2.0
+        sc_mid_hip = np.minimum(
+            kp[2, dataset_keypoints.index('right_hip')],
+            kp[2, dataset_keypoints.index('left_hip')])
+        nose_idx = dataset_keypoints.index('nose')
+        if sc_mid_shoulder >= kp_thresh and kp[2, nose_idx] >= kp_thresh:
+            cv2.line(
+                kp_mask, tuple(mid_shoulder), tuple(kp[:2, nose_idx]),
+                color=colors[len(kp_lines)], thickness=2, lineType=cv2.LINE_AA)
+        if sc_mid_shoulder >= kp_thresh and sc_mid_hip >= kp_thresh:
+            cv2.line(
+                kp_mask, tuple(mid_shoulder), tuple(mid_hip),
+                color=colors[len(kp_lines) + 1], thickness=2, lineType=cv2.LINE_AA)
+
+        for l in range(len(kp_lines)):
+            i1 = kp_lines[l][0]
+            i2 = kp_lines[l][1]
+            p1 = kp[0, i1], kp[1, i1]
+            p2 = kp[0, i2], kp[1, i2]
+            if kp[2, i1] >= kp_thresh and kp[2, i2] >= kp_thresh:
+                cv2.line(
+                    kp_mask, p1, p2,
+                    color=colors[l], thickness=2, lineType=cv2.LINE_AA)
+            if kp[2, i1] >= kp_thresh:
+                cv2.circle(
+                    kp_mask, p1,
+                    radius=3, color=colors[l], thickness=-1, lineType=cv2.LINE_AA)
+            if kp[2, i2] >= kp_thresh:
+                cv2.circle(
+                    kp_mask, p2,
+                    radius=3, color=colors[l], thickness=-1, lineType=cv2.LINE_AA)
+
+    # Blend the keypoints.
+    return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
+
+
+
 def show_img(img,boxes1,boxes2,labels):
     img1=np.asarray(img,np.uint8).copy()
     for pos,label in zip(boxes1,labels):

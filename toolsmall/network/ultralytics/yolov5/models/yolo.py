@@ -2,7 +2,7 @@ import argparse
 
 import yaml
 
-from models.experimental import *
+from .experimental import *
 
 
 class Detect(nn.Module):

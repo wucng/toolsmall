@@ -515,6 +515,17 @@ def resize_boxes(boxes, original_size, new_size):
     ymax = ymax * ratio_height
     return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
+
+def resize_keypoints(keypoints, original_size, new_size):
+    ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(new_size, original_size))
+    ratio_height, ratio_width = ratios
+
+    keypoints[...,0] *= ratio_width  # x
+    keypoints[...,1] *= ratio_height # y
+
+    return keypoints
+
+
 def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10, border=0):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
     # https://medium.com/uruvideo/dataset-augmentation-with-random-homographies-a8f4b44830d4
@@ -844,3 +855,13 @@ def mixup(self,idx):
     labels = torch.as_tensor(temp_labels, dtype=torch.long)
     if mask is not None:mask=temp_mask
     return img,mask,boxes, labels,img_path
+
+
+def flip_coco_person_keypoints(kps, width):
+    flip_inds = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+    flipped_data = kps[:, flip_inds]
+    flipped_data[..., 0] = width - flipped_data[..., 0]
+    # Maintain COCO convention that if visibility == 0, then x, y = 0
+    inds = flipped_data[..., 2] == 0
+    flipped_data[inds] = 0
+    return flipped_data

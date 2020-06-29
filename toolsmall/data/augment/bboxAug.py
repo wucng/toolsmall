@@ -118,6 +118,12 @@ class Pad(object):
             if "boxes" in target:
                 boxes = [[b[0] + diff // 2, b[1], b[2] + diff - diff // 2, b[3]] for b in boxes]
                 boxes = torch.as_tensor(boxes,dtype=torch.float32)
+            if "keypoints" in target:
+                keypoints = target["keypoints"]
+                keypoints[...,0] += diff // 2 # x
+                # keypoints[...,1] # y
+                target["keypoints"] = keypoints
+
 
         else:
             diff = w - h
@@ -125,6 +131,13 @@ class Pad(object):
             if "boxes" in target:
                 boxes = [[b[0], b[1] + diff // 2, b[2], b[3] + diff - diff // 2] for b in boxes]
                 boxes = torch.as_tensor(boxes,dtype=torch.float32)
+
+            if "keypoints" in target:
+                keypoints = target["keypoints"]
+                # keypoints[...,0] = keypoints[...,0]+ diff // 2 # x
+                keypoints[...,1] += diff // 2 # y
+                target["keypoints"] = keypoints
+
 
         img = np.pad(img, pad_list, mode=self.mode, constant_values=self.value)
 
@@ -170,6 +183,12 @@ class Resize(object):
             boxes = resize_boxes(boxes,original_size,self.size)
 
             target["boxes"] = boxes
+
+        if "keypoints" in target:
+            keypoints = target["keypoints"]
+            keypoints = resize_keypoints(keypoints,original_size,self.size)
+            target["keypoints"] = keypoints
+
         return PIL.Image.fromarray(img), target
 
 
@@ -611,41 +630,39 @@ class RandomHorizontalFlip(object):
         self.p = p
 
     def __call__(self, img,target):
-        try:
-            _img, _target = self.do(img.copy(), target.copy())
-            if len(_target["boxes"]) > 0:
-                # clip to image
-                w, h = _img.size  # PIL
-                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
-                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
-                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
-                    image, target = _image, _target
-            del _img
-            del _target
-        except:
-            pass
-        return img, target
+        return self.do(img, target)
 
     def do(self,img,target):
         if random.random() < self.p:
             img = np.asarray(img)
+            height,width = img.shape[:2]
+            img = img[:, ::-1, :]
+            """
             img_center = np.array(img.shape[:2])[::-1] / 2
             img_center = np.hstack((img_center, img_center))
             img_center = torch.as_tensor(img_center,dtype=torch.float32)
             bboxes = target["boxes"]
-
-            img = img[:, ::-1, :]
             bboxes[:, [0, 2]] += 2 * (img_center[[0, 2]] - bboxes[:, [0, 2]])
-
             box_w = abs(bboxes[:, 0] - bboxes[:, 2])
-
             bboxes[:, 0] -= box_w
             bboxes[:, 2] += box_w
+            """
+            bboxes = target["boxes"]
+            bboxes[:, [0, 2]] = width - bboxes[:, [2, 0]]
+            # """
+
+            if not ((bboxes[:,2:]-bboxes[:,:2])>0).all():
+                return PIL.Image.fromarray(img), target
+
+            target["boxes"] = bboxes
 
             if "masks" in target:
                 target["masks"] = target["masks"].flip(-1)
 
-            target["boxes"]=bboxes
+            if "keypoints" in target:
+                keypoints = target["keypoints"]
+                keypoints = flip_coco_person_keypoints(keypoints, width)
+                target["keypoints"] = keypoints
 
             return PIL.Image.fromarray(img), target
         else:
@@ -948,20 +965,7 @@ class RandomBrightness(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
-        try:
-            _img, _target = self.do(img.copy(), target.copy())
-            if len(_target["boxes"]) > 0:
-                # clip to image
-                w, h = _img.size  # PIL
-                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
-                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
-                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
-                    image, target = _image, _target
-            del _img
-            del _target
-        except:
-            pass
-        return img, target
+        return self.do(img, target)
 
     def do(self,img,target):
         if random.random() < self.p:
@@ -984,20 +988,7 @@ class RandomSaturation(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
-        try:
-            _img, _target = self.do(img.copy(), target.copy())
-            if len(_target["boxes"]) > 0:
-                # clip to image
-                w, h = _img.size  # PIL
-                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
-                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
-                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
-                    image, target = _image, _target
-            del _img
-            del _target
-        except:
-            pass
-        return img, target
+        return self.do(img, target)
 
     def do(self,img,target):
         if random.random() < self.p:
@@ -1020,20 +1011,7 @@ class RandomHue(object):
         self.alpha = alpha
 
     def __call__(self,img,target):
-        try:
-            _img, _target = self.do(img.copy(), target.copy())
-            if len(_target["boxes"]) > 0:
-                # clip to image
-                w, h = _img.size  # PIL
-                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
-                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
-                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
-                    image, target = _image, _target
-            del _img
-            del _target
-        except:
-            pass
-        return img, target
+        return self.do(img, target)
 
     def do(self,img,target):
         if random.random() < self.p:
@@ -1056,20 +1034,7 @@ class RandomBlur(object):
         self.kernel = kernel
 
     def __call__(self,img,target):
-        try:
-            _img, _target = self.do(img.copy(), target.copy())
-            if len(_target["boxes"]) > 0:
-                # clip to image
-                w, h = _img.size  # PIL
-                _target["boxes"][:, [0, 2]] = _target["boxes"][:, [0, 2]].clamp(min=0, max=w)
-                _target["boxes"][:, [1, 3]] = _target["boxes"][:, [1, 3]].clamp(min=0, max=h)
-                if (_target["boxes"][:, 2:] - _target["boxes"][:, :2] > 0).all():
-                    image, target = _image, _target
-            del _img
-            del _target
-        except:
-            pass
-        return img, target
+        return self.do(img, target)
 
     def do(self,img,target):
         if random.random() < self.p:

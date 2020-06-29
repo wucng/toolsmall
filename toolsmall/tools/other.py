@@ -4,7 +4,7 @@ try:
     flag=True
 except:
     from .nms.nms import nms2
-from .visual.vis import vis_rect
+from .visual.vis import vis_rect,vis_keypoints2
 import torch
 from torch import nn
 
@@ -27,17 +27,25 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
         last_scores = []
         last_labels = []
         last_boxes = []
+        if "keypoints" in prediction:
+            last_keypoints = []
+
 
         # 2.类别一样的按nms过滤，如果Iou大于nms_thres,保留分数最大的,否则都保留
         # 按阈值过滤
         scores = prediction["scores"][ms]
         labels = prediction["labels"][ms]
         boxes = prediction["boxes"][ms]
+        if "keypoints" in prediction:
+            keypoints = prediction["keypoints"][ms]
         if flag:
             keep = nms(boxes, scores,labels,nms_thres)
             last_scores.extend(scores[keep])
             last_labels.extend(labels[keep])
             last_boxes.extend(boxes[keep])
+            if "keypoints" in prediction:
+                last_keypoints.extend(keypoints[keep])
+
         else:
             unique_labels = labels.unique()
             for c in unique_labels:
@@ -81,6 +89,11 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
                 last_boxes[i][0] -= diff // 2
                 last_boxes[i][2] -= diff - diff // 2
 
+                if "keypoints" in prediction:
+                    last_keypoints[i][:,0] *= w_scale
+                    last_keypoints[i][:,1] *= h_scale
+                    last_keypoints[i][:, 0] -= diff // 2
+
         else:
             h_scale = w_ori / h_re
             w_scale = w_ori / w_re
@@ -91,6 +104,14 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
 
                 last_boxes[i][1] -= diff // 2
                 last_boxes[i][3] -= diff - diff // 2
+
+                if "keypoints" in prediction:
+                    last_keypoints[i][:,0] *= w_scale
+                    last_keypoints[i][:,1] *= h_scale
+                    last_keypoints[i][:, 1] -= diff // 2
+
+        if "keypoints" in prediction:
+            return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes,"keypoints":last_keypoints}
 
         return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes}
 

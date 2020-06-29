@@ -1,4 +1,4 @@
-from models.yolo import Model
+from .models.yolo import Model
 import torch
 
 if __name__=="__main__":

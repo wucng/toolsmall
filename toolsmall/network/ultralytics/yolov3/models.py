@@ -1,6 +1,6 @@
-from utils.google_utils import *
-from utils.layers import *
-from utils.parse_config import *
+from .utils.google_utils import *
+from .utils.layers import *
+from .utils.parse_config import *
 
 ONNX_EXPORT = False
 

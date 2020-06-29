@@ -6,7 +6,7 @@ import argparse
 
 import onnx
 
-from models.common import *
+from .common import *
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
