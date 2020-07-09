@@ -1,7 +1,8 @@
 from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset
 from data.msCOCODatas import MSCOCOKeypointDataset
+from data import FDDBDataset,WIDERFACEDataset
 from data.augment import bboxAug
-from tools.visual.vis import vis_rect,vis_keypoints,vis_keypoints2
+from tools.visual.vis import vis_rect,vis_keypoints,vis_keypoints2,drawMask
 
 import numpy as np
 import random
@@ -24,6 +25,13 @@ def collate_fn(batch_data):
 
 def test_datasets():
     # """
+    classes = ["face"]
+    # root= "/media/wucong/225A6D42D4FA828F1/datas/fddb"
+    root = "/media/wucong/225A6D42D4FA828F1/datas/widerFace"
+    typeOfData = None
+    # """
+
+    """
     root = "/media/wucong/225A6D42D4FA828F1/datas/COCO"
     classes = ["person"]
     do_segm = False
@@ -73,7 +81,8 @@ def test_datasets():
                # bboxAug.RandomRotate(angle=5),
                # bboxAug.RandomTranslate(),
                # bboxAug.Augment(False),
-               bboxAug.Pad(), bboxAug.Resize((416,416), False),
+               bboxAug.Pad(),
+               bboxAug.Resize((416,416), False),
                # bboxAug.ResizeMinMax(800,1333),
                # bboxAug.ResizeFixAndPad(),
                # bboxAug.RandomHSV(),
@@ -93,10 +102,14 @@ def test_datasets():
     else:
         Data = None
 
-    # dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=True)
+    # dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=False)
 
-    dataset = MSCOCOKeypointDataset(root,mode="minival",transforms=train_transforms,classes=classes,useMosaic=False)
-    data_loader = DataLoader(dataset, batch_size=2, shuffle=False,collate_fn=collate_fn, **kwargs)
+    # dataset = FDDBDataset(root, transforms=train_transforms, classes=classes)
+    dataset = WIDERFACEDataset(root, transforms=train_transforms, classes=classes)
+
+    # dataset = MSCOCOKeypointDataset(root,mode="minival",transforms=train_transforms,classes=classes,useMosaic=False)
+
+    data_loader = DataLoader(dataset, batch_size=1, shuffle=False,collate_fn=collate_fn, **kwargs)
 
     for datas,targets in data_loader:
         for data,target in zip(datas,targets):
@@ -111,12 +124,19 @@ def test_datasets():
 
             boxes = target["boxes"].to("cpu").numpy().astype(np.int)
             labels = target["labels"].to("cpu").numpy()
-
+            if "masks" in target:
+                masks = target["masks"].to("cpu").numpy()
             for idx,(box,label) in enumerate(zip(boxes,labels)):
-                data = vis_rect(data,box,str(label),0.5,label)
+                data = vis_rect(data,box,str(label),0.5,label,useMask=False)
 
-                if "keypoints" in target:
-                    data = vis_keypoints2(data, target["keypoints"].to("cpu").numpy().transpose([0,2,1]),1)
+                if "masks" in target:
+                    # for idx in range(masks.shape[0]):
+                    # mask Tensor[len(labels),img_h,img_w] # 每个目标对象对应一张mask，0代表背景，1表示目标
+                    data = drawMask(data,masks[...,idx],label,alpha=0.7)
+
+            if "keypoints" in target:
+                data = vis_keypoints2(data, target["keypoints"].to("cpu").numpy().transpose([0,2,1]),1)
+
 
             cv2.imshow("test", data)
             cv2.waitKey(0)

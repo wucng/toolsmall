@@ -92,7 +92,7 @@ def vis_mask(img, mask, col, alpha=0.4, show_border=True, border_thick=1):
     """Visualizes a single binary mask."""
     img = img.astype(np.float32)
     idx = np.nonzero(mask)
-
+    # print(mask.max())
     img[idx[0], idx[1], :] *= 1.0 - alpha
     img[idx[0], idx[1], :] += alpha * col
 
@@ -107,6 +107,15 @@ def vis_mask(img, mask, col, alpha=0.4, show_border=True, border_thick=1):
             cv2.drawContours(img, contours, -1, _WHITE, border_thick, cv2.LINE_AA)
 
     return img.astype(np.uint8)
+
+def drawMask(img,mask, label=1,colors=[],alpha=0.4):
+    color = colors[label] if colors else colormap()[label].tolist()
+    # mask
+    # color_mask = [255, 184,99]  # BGR
+    color_mask = np.asarray(color, np.uint8).reshape([1, 3])
+    img = vis_mask(img, mask, color_mask, alpha, False)  # True
+
+    return img
 
 def get_keypoints():
     """Get the COCO keypoints and their left/right flip coorespondence map."""

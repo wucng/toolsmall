@@ -16,6 +16,7 @@ import sys
 import random
 from glob import glob
 import re
+import pickle
 
 def glob_format(path,base_name = False):
     #print('--------pid:%d start--------------' % (os.getpid()))
@@ -230,8 +231,15 @@ class WIDERFACEDataset(Dataset):
         self.annot_path = os.path.join(root,"wider_face_split")
         self.transforms = transforms
         self.classes=classes
-        self.annotations=self.change2csv()
+        # self.annotations=self.change2csv()
         assert "face" in self.classes
+
+        pklfile = os.path.join(root, "%s.pkl" % ("wider_face"))
+        if not os.path.exists(pklfile):
+            annotations = self.change2csv()
+            pickle.dump(annotations, open(pklfile, "wb"))
+        # else:
+        self.annotations = pickle.load(open(pklfile, "rb"))
 
     # 将注释文件转成csv格式：xxx/xxx.jpg x1,y1,x2,y2,label,...
     def change2csv(self):

@@ -6,3 +6,4 @@ from .nms.py_cpu_nms import py_cpu_nms
 from .train import coco_eval,engine,transforms
 from .visual import vis,colormap
 from .ultralytics_yolov3 import utils
+from .speed import modelTansform#,cuda,tensorrt

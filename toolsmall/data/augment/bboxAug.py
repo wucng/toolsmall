@@ -140,6 +140,10 @@ class Pad(object):
 
 
         img = np.pad(img, pad_list, mode=self.mode, constant_values=self.value)
+        if "masks" in target:
+            masks = target["masks"].cpu().numpy()
+            masks = np.pad(masks, pad_list, mode=self.mode, constant_values=0)
+            target["masks"] = torch.from_numpy(masks)
 
         if "boxes" in target:
             target["boxes"] = boxes
@@ -176,6 +180,14 @@ class Resize(object):
 
         # img = scipy.misc.imresize(img,self.size,'bicubic') #  or 'cubic'
         img = cv2.resize(img, self.size, interpolation=cv2.INTER_CUBIC)
+
+        if "masks" in target:
+            masks = target["masks"].cpu().numpy()
+            tmp_masks = np.zeros([*self.size,masks.shape[-1]],np.float32)
+            for i in range(masks.shape[-1]):
+                tmp_masks[...,i] = cv2.resize(masks[...,i], self.size, interpolation=cv2.INTER_NEAREST)
+
+            target["masks"] = torch.from_numpy(tmp_masks)
 
         if "boxes" in target:
             boxes = target["boxes"]
@@ -657,7 +669,9 @@ class RandomHorizontalFlip(object):
             target["boxes"] = bboxes
 
             if "masks" in target:
-                target["masks"] = target["masks"].flip(-1)
+                # target["masks"] = target["masks"].flip(-1)
+                target["masks"] = target["masks"].flip(1)
+
 
             if "keypoints" in target:
                 keypoints = target["keypoints"]

@@ -7,6 +7,7 @@ except:
 from .visual.vis import vis_rect,vis_keypoints2
 import torch
 from torch import nn
+import cv2
 
 def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
     """
@@ -30,6 +31,9 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
         if "keypoints" in prediction:
             last_keypoints = []
 
+        if "masks" in prediction:
+            last_masks = []
+
 
         # 2.类别一样的按nms过滤，如果Iou大于nms_thres,保留分数最大的,否则都保留
         # 按阈值过滤
@@ -38,6 +42,9 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
         boxes = prediction["boxes"][ms]
         if "keypoints" in prediction:
             keypoints = prediction["keypoints"][ms]
+        if "masks" in prediction:
+            masks = prediction["masks"][ms]
+
         if flag:
             keep = nms(boxes, scores,labels,nms_thres)
             last_scores.extend(scores[keep])
@@ -45,6 +52,9 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
             last_boxes.extend(boxes[keep])
             if "keypoints" in prediction:
                 last_keypoints.extend(keypoints[keep])
+
+            if "masks" in prediction:
+                last_masks.extend(masks[keep])
 
         else:
             unique_labels = labels.unique()
@@ -94,6 +104,12 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
                     last_keypoints[i][:,1] *= h_scale
                     last_keypoints[i][:, 0] -= diff // 2
 
+                if "masks" in prediction:
+                    last_masks[i] = cv2.resize(last_masks[i].cpu().numpy(),(h_ori,h_ori),interpolation=cv2.INTER_NEAREST)
+                    start = int(diff.item() // 2)
+                    end = int(diff.item()-diff.item() // 2)
+                    last_masks[i] = torch.from_numpy(last_masks[i][:, start:-end])
+
         else:
             h_scale = w_ori / h_re
             w_scale = w_ori / w_re
@@ -109,9 +125,17 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
                     last_keypoints[i][:,0] *= w_scale
                     last_keypoints[i][:,1] *= h_scale
                     last_keypoints[i][:, 1] -= diff // 2
+                if "masks" in prediction:
+                    last_masks[i] = cv2.resize(last_masks[i].cpu().numpy(),(w_ori,w_ori),interpolation=cv2.INTER_NEAREST)
+                    start = int(diff.item() // 2)
+                    end = int(diff.item() - diff.item() // 2)
+                    last_masks[i] = torch.from_numpy(last_masks[i][start:-end,:])
 
         if "keypoints" in prediction:
             return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes,"keypoints":last_keypoints}
+
+        if "masks" in prediction:
+            return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes,"masks":last_masks}
 
         return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes}
 

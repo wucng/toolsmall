@@ -62,7 +62,7 @@ class PennFudanDataset(object):
         mask = Image.open(mask_path)
 
         mask = np.array(mask)
-        ori_mask = mask
+
         # instances are encoded as different colors
         # 实例被编码为不同的颜色（0为背景，1为对象1,2为对象2,3为对象3，...）
         obj_ids = np.unique(mask)  # array([0, 1, 2], dtype=uint8),mask有2个对象分别为1,2
@@ -89,6 +89,7 @@ class PennFudanDataset(object):
             boxes.append([xmin, ymin, xmax, ymax])
             labels.append(self.classes.index("person"))
 
+
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
         # there is only one class
@@ -96,7 +97,7 @@ class PennFudanDataset(object):
         # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
         # masks = torch.as_tensor(masks, dtype=torch.uint8)
 
-        return img,ori_mask, boxes, labels,img_path
+        return img,masks.transpose([1,2,0]).astype(np.float32), boxes, labels,img_path
 
     def __getitem__(self, idx):
         if self.useMosaic:
@@ -115,11 +116,7 @@ class PennFudanDataset(object):
             img, masks, boxes, labels,img_path = self.load(idx)
 
         img = Image.fromarray(img)
-
-        obj_ids = np.unique(masks)
-        obj_ids = obj_ids[1:]
-        masks = masks == obj_ids[:, None, None]  # shape (2, 536, 559)，2个mask
-        masks = torch.as_tensor(masks, dtype=torch.uint8)
+        masks = torch.from_numpy(masks)
 
         image_id = torch.tensor([idx])
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
