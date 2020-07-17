@@ -97,7 +97,8 @@ class PennFudanDataset(object):
         # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
         # masks = torch.as_tensor(masks, dtype=torch.uint8)
 
-        return img,masks.transpose([1,2,0]).astype(np.float32), boxes, labels,img_path
+        # return img,masks.transpose([1,2,0]).astype(np.float32), boxes, labels,img_path
+        return img,None, boxes, labels,img_path
 
     def __getitem__(self, idx):
         if self.useMosaic:
@@ -116,7 +117,8 @@ class PennFudanDataset(object):
             img, masks, boxes, labels,img_path = self.load(idx)
 
         img = Image.fromarray(img)
-        masks = torch.from_numpy(masks)
+        if masks is not None:
+            masks = torch.from_numpy(masks)
 
         image_id = torch.tensor([idx])
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])

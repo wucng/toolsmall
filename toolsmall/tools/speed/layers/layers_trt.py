@@ -63,7 +63,11 @@ def trt_pool(network,input_size,type,pool_size,stride,padding=(0,0)):
     pool1.padding = padding
     return pool1
 
-def trt_active(network,input_size,type=trt.ActivationType.RELU):
+def trt_active(network,input_size,type=trt.ActivationType.RELU,alpha=0.1):
+    if type == trt.ActivationType.LEAKY_RELU:
+        lrelu = network.add_activation(input=input_size, type=type)
+        lrelu.alpha = alpha
+        return lrelu
     return network.add_activation(input=input_size, type=type)
 
 def trt_add(network,input_size1,input_size2):
