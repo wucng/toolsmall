@@ -12,6 +12,7 @@ import tensorrt as trt
 # You can set the logger severity higher to suppress messages (or lower to display more messages).
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
+import ctypes
 import onnx # pip install onnx
 import torch.onnx
 # import onnxruntime # pip install onnxruntime
@@ -35,6 +36,12 @@ from toolsmall.tools.speed import common
 import time
 from functools import wraps,partial
 # __all__=["saveTorchModel","saveTorchWeights","torch2npz",'torch2onnx','onnx2engine','weight2engine']
+
+from .calibration import (
+    TensorBatchDataset,
+    DatasetCalibrator,
+    DEFAULT_CALIBRATION_ALGORITHM,
+)
 
 def timeit(func):
     @wraps(func)
@@ -226,11 +233,49 @@ def loadData(root,batch_size,resize=(256,256),lasize=(224,224)):
 # --------------------------------------------------------------------
 
 def onnx2engine(onnx_file_path:str="./model.onnx",engine_file_path:str="./model.engine",ModelData=None):
+    # 加载自定义的plugin插件
+    if ModelData.PLUGIN_LIBRARY:
+        if not os.path.isfile(ModelData.PLUGIN_LIBRARY):
+            raise IOError("\n{}\n{}\n{}\n".format(
+                "Failed to load library ({}).".format(ModelData.PLUGIN_LIBRARY),
+                "Please build the Clip sample plugin.",
+                "For more information, see the included README.md"
+            ))
+        ctypes.CDLL(ModelData.PLUGIN_LIBRARY)
+
     def build_engine():
         """Takes an ONNX file and creates a TensorRT engine to run inference with"""
         with trt.Builder(TRT_LOGGER) as builder, builder.create_network(common.EXPLICIT_BATCH) as network, trt.OnnxParser(network, TRT_LOGGER) as parser:
             builder.max_batch_size = ModelData.BATCH_SIZE
-            builder.max_workspace_size = common.GiB(1) # 1 << 28 # 256MiB
+            builder.max_workspace_size = common.GiB(ModelData.MEM_SIZE) # 1 # 1 << 28 # 256MiB
+            # builder.strict_type_constraints = False
+
+            if ModelData.DTYPE==trt.float16:
+                builder.fp16_mode = True
+            elif ModelData.DTYPE==trt.int8: # onnx有问题，官方例子caffe是可以的
+                builder.int8_mode = True
+                # default to use input tensors for calibration
+                # if int8_calib_dataset is None:
+                inputs = [ModelData.INPUT_SAMPLE] # INPUT_SAMPLE=torch.ones([1,3,416,416],torch.float32)
+                inputs_in = inputs
+
+                # copy inputs to avoid modifications to source data
+                inputs = [tensor.clone()[0:1] for tensor in inputs]  # only run single entry
+
+                if isinstance(inputs, list):
+                    inputs = tuple(inputs)
+                if not isinstance(inputs, tuple):
+                    inputs = (inputs,)
+
+                int8_calib_dataset = TensorBatchDataset(inputs_in)
+
+                # @TODO(jwelsh):  Should we set batch_size=max_batch_size?  Need to investigate memory consumption
+                builder.int8_calibrator = DatasetCalibrator(
+                    inputs, int8_calib_dataset, batch_size=ModelData.BATCH_SIZE, algorithm=DEFAULT_CALIBRATION_ALGORITHM
+                )
+
+            else:
+                pass
             # Parse model file
             if not os.path.exists(onnx_file_path):
                 print('ONNX file {} not found, please run yolov3_to_onnx.py first to generate it.'.format(onnx_file_path))
@@ -244,7 +289,7 @@ def onnx2engine(onnx_file_path:str="./model.onnx",engine_file_path:str="./model.
                         print (parser.get_error(error))
                     return None
             # The actual yolov3.onnx is generated with batch size 64. Reshape input to batch size 1
-            # network.get_input(0).shape = [1, 3, 608, 608]
+            # network.get_input(0).shape = ModelData.INPUT_SHAPE
             print('Completed parsing of ONNX file')
             print('Building an engine from file {}; this may take a while...'.format(onnx_file_path))
             engine = builder.build_cuda_engine(network)
@@ -254,6 +299,101 @@ def onnx2engine(onnx_file_path:str="./model.onnx",engine_file_path:str="./model.
             return engine
 
     return build_engine()
+
+# The UFF path is used for TensorFlow models. You can convert a frozen TensorFlow graph to UFF using the included convert-to-uff utility.
+def uuf2engine(model_file:str="./model.uff",engine_file_path:str="./model.engine",ModelData=None):
+    # 加载自定义的plugin插件
+    if ModelData.PLUGIN_LIBRARY:
+        if not os.path.isfile(ModelData.PLUGIN_LIBRARY):
+            raise IOError("\n{}\n{}\n{}\n".format(
+                "Failed to load library ({}).".format(ModelData.PLUGIN_LIBRARY),
+                "Please build the Clip sample plugin.",
+                "For more information, see the included README.md"
+            ))
+        ctypes.CDLL(ModelData.PLUGIN_LIBRARY)
+
+    def build_engine():
+        """Takes an ONNX file and creates a TensorRT engine to run inference with"""
+        with trt.Builder(TRT_LOGGER) as builder, builder.create_network(common.EXPLICIT_BATCH) as network, trt.UffParser() as parser:
+            builder.max_batch_size = ModelData.BATCH_SIZE
+            builder.max_workspace_size = common.GiB(ModelData.MEM_SIZE) # 1 # 1 << 28 # 256MiB
+            if ModelData.DTYPE==trt.float16:
+                builder.fp16_mode = True
+            elif ModelData.DTYPE==trt.int8: # onnx有问题，官方例子caffe是可以的
+                builder.int8_mode = True
+
+                # Now we create a calibrator and give it the location of our calibration data.
+                # We also allow it to cache calibration data for faster engine building.
+                calibration_cache = "calibration.cache"
+                calib = common.MNISTEntropyCalibrator(ModelData.data_dir,ModelData.INPUT_SHAPE[-2:],
+                                                      cache_file=calibration_cache,batch_size=ModelData.BATCH_SIZE)
+                builder.int8_calibrator = calib
+
+            else:
+                pass
+            # Parse model file
+            # We need to manually register the input and output nodes for UFF.
+            parser.register_input(ModelData.INPUT_NAME, ModelData.INPUT_SHAPE)
+            parser.register_output(ModelData.OUTPUT_NAME)
+            # Load the UFF model and parse it in order to populate the TensorRT network.
+            if model_file.rsplit(".")[-1]=="pb":
+                model_file = common.model_to_uff(model_file)
+            parser.parse(model_file, network)
+            print('Building an engine from file {}; this may take a while...'.format(model_file))
+            engine = builder.build_cuda_engine(network)
+            print("Completed creating Engine")
+            with open(engine_file_path, "wb") as f:
+                f.write(engine.serialize())
+            return engine
+
+    return build_engine()
+
+# The Caffe path is used for Caffe2 models.
+def caffe2engine(model_file="",deploy_file="",engine_file_path:str="./model.engine",ModelData=None):
+    # 加载自定义的plugin插件
+    if ModelData.PLUGIN_LIBRARY:
+        if not os.path.isfile(ModelData.PLUGIN_LIBRARY):
+            raise IOError("\n{}\n{}\n{}\n".format(
+                "Failed to load library ({}).".format(ModelData.PLUGIN_LIBRARY),
+                "Please build the Clip sample plugin.",
+                "For more information, see the included README.md"
+            ))
+        ctypes.CDLL(ModelData.PLUGIN_LIBRARY)
+
+    def build_engine():
+        """Takes an ONNX file and creates a TensorRT engine to run inference with"""
+        with trt.Builder(TRT_LOGGER) as builder, builder.create_network(common.EXPLICIT_BATCH) as network, trt.CaffeParser() as parser:
+            builder.max_batch_size = ModelData.BATCH_SIZE
+            builder.max_workspace_size = common.GiB(ModelData.MEM_SIZE) # 1 # 1 << 28 # 256MiB
+            if ModelData.DTYPE==trt.float16:
+                builder.fp16_mode = True
+            elif ModelData.DTYPE==trt.int8: # onnx有问题，官方例子caffe是可以的
+                builder.int8_mode = True
+
+                # Now we create a calibrator and give it the location of our calibration data.
+                # We also allow it to cache calibration data for faster engine building.
+                calibration_cache = "calibration.cache"
+                calib = common.MNISTEntropyCalibrator(ModelData.data_dir,ModelData.INPUT_SHAPE[-2:],
+                                                      cache_file=calibration_cache,batch_size=ModelData.BATCH_SIZE)
+                builder.int8_calibrator = calib
+
+            else:
+                pass
+            # Load the Caffe model and parse it in order to populate the TensorRT network.
+            # This function returns an object that we can query to find tensors by name.
+            model_tensors = parser.parse(deploy=deploy_file, model=model_file, network=network,dtype=ModelData.DTYPE)
+            # For Caffe, we need to manually mark the output of the network.
+            # Since we know the name of the output tensor, we can find it in model_tensors.
+            network.mark_output(model_tensors.find(ModelData.OUTPUT_NAME))
+            print('Building an engine from file {}; this may take a while...'.format(model_file))
+            engine = builder.build_cuda_engine(network)
+            print("Completed creating Engine")
+            with open(engine_file_path, "wb") as f:
+                f.write(engine.serialize())
+            return engine
+
+    return build_engine()
+
 
 # tensorrt python api
 def weight2engine(model_file_path:str="./model.pth",engine_file_path:str="./model.engine",ModelData=None,populate_network=None):
@@ -271,7 +411,21 @@ def weight2engine(model_file_path:str="./model.pth",engine_file_path:str="./mode
         """Takes an ONNX file and creates a TensorRT engine to run inference with"""
         with trt.Builder(TRT_LOGGER) as builder, builder.create_network(common.EXPLICIT_BATCH) as network:
             builder.max_batch_size = ModelData.BATCH_SIZE
-            builder.max_workspace_size = common.GiB(1)  # 1 << 28 # 256MiB
+            builder.max_workspace_size = common.GiB(ModelData.MEM_SIZE)  # 1 << 28 # 256MiB
+            if ModelData.DTYPE==trt.float16:
+                builder.fp16_mode = True
+            elif ModelData.DTYPE==trt.int8: # onnx有问题，官方例子caffe是可以的
+                builder.int8_mode = True
+
+                # Now we create a calibrator and give it the location of our calibration data.
+                # We also allow it to cache calibration data for faster engine building.
+                calibration_cache = "calibration.cache"
+                calib = common.MNISTEntropyCalibrator(ModelData.data_dir,ModelData.INPUT_SHAPE[-2:],
+                                                      cache_file=calibration_cache,batch_size=ModelData.BATCH_SIZE)
+                builder.int8_calibrator = calib
+
+            else:
+                pass
             # Populate the network using weights from the PyTorch model.
             populate_network(network, weights)
             engine = builder.build_cuda_engine(network)
