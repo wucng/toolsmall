@@ -22,6 +22,7 @@ from collections import OrderedDict
 import numpy as np
 from PIL import Image
 import os
+import struct
 
 from torchvision import transforms as tfs
 from torch.utils.data import DataLoader, Dataset
@@ -96,9 +97,25 @@ def runPth_batch2(test_loader:torch.utils.data.DataLoader,model:torch.nn.Module,
             pred_list.extend(pred)
     return pred_list
 
-# --------------------------------------------------------------------
+# ------------------用于C++ tensorrt API---------------------------------
+def torch2wts(model:torch.nn.Module,save_path:str="./model.wts"):
+    """用于C++ tensorrt API"""
+    model.eval()
+    with open(save_path,'w') as fp:
+        fp.write("{}\n".format(len(model.state_dict().keys())))
+        for k,v in model.state_dict().items():
+            print("key:",k)
+            print("value:",v.shape)
+            vr = v.reshape(-1).cpu().numpy()
+            fp.write("{} {}".format(k, len(vr)))
+            for vv in vr:
+                fp.write(" ")
+                fp.write(struct.pack(">f", float(vv)).hex())
+            fp.write("\n")
 
+# --------------------用于python tensorrt API---------------------------------
 def torch2npz(model:torch.nn.Module,save_path:str="./model.npz"):
+    model.eval()
     dict_weights = model.state_dict()
     # save to npz
     weights_arg = {}
