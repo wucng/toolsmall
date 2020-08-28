@@ -5,8 +5,8 @@ pandas
 seaborn
 scikit-image>=0.16.2
 scikit-learn>=0.22.2.post1
-opencv-contrib-python>=4.2.0.34
-opencv-python>=4.2.0.34
+#opencv-contrib-python>=4.2.0.34
+#opencv-python>=4.2.0.34
 pycocotools>=2.0
 Pillow>=5.1.0
 numpy>=1.18.3
