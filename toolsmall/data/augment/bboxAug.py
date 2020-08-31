@@ -140,7 +140,7 @@ class Pad(object):
 
 
         img = np.pad(img, pad_list, mode=self.mode, constant_values=self.value)
-        if "masks" in target:
+        if "masks" in target and target["masks"] is not None:
             masks = target["masks"].cpu().numpy()
             masks = np.pad(masks, pad_list, mode=self.mode, constant_values=0)
             target["masks"] = torch.from_numpy(masks)
@@ -181,7 +181,7 @@ class Resize(object):
         # img = scipy.misc.imresize(img,self.size,'bicubic') #  or 'cubic'
         img = cv2.resize(img, self.size, interpolation=cv2.INTER_CUBIC)
 
-        if "masks" in target:
+        if "masks" in target and target["masks"] is not None:
             masks = target["masks"].cpu().numpy()
             tmp_masks = np.zeros([*self.size,masks.shape[-1]],np.float32)
             for i in range(masks.shape[-1]):
@@ -290,6 +290,20 @@ class ResizeMinMax(object):
             boxes = target["boxes"]
             boxes = resize_boxes(boxes, (img_h, img_w), (new_h,new_w))
             target["boxes"] = boxes
+
+        if "masks" in target and target["masks"] is not None:
+            masks = target["masks"].cpu().numpy()
+            tmp_masks = np.zeros([new_h,new_w, masks.shape[-1]], np.float32)
+            for i in range(masks.shape[-1]):
+                tmp_masks[..., i] = cv2.resize(masks[..., i], (new_w,new_h), interpolation=cv2.INTER_CUBIC)
+
+            target["masks"] = torch.from_numpy(tmp_masks)
+
+        if "keypoints" in target:
+            keypoints = target["keypoints"]
+            keypoints = resize_keypoints(keypoints,(img_h, img_w), (new_h,new_w))
+            target["keypoints"] = keypoints
+
 
         return PIL.Image.fromarray(img),target
 
@@ -668,7 +682,7 @@ class RandomHorizontalFlip(object):
 
             target["boxes"] = bboxes
 
-            if "masks" in target:
+            if "masks" in target and target["masks"] is not None:
                 # target["masks"] = target["masks"].flip(-1)
                 target["masks"] = target["masks"].flip(1)
 

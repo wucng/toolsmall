@@ -522,10 +522,14 @@ class MaskRCNNPredictorV2(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
+        self.up_scale =2
+
     def forward(self,x):
         x = self.conv(x)
         x = self.deconv(x)
-
+        x = F.interpolate(
+            x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
+        )
         return x
 
 
