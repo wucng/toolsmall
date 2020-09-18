@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import scipy.misc
 import skimage
+from skimage.transform import resize
 import torch
 import PIL.Image
 from PIL import Image
@@ -183,9 +184,10 @@ class Resize(object):
 
         if "masks" in target and target["masks"] is not None:
             masks = target["masks"].cpu().numpy()
-            tmp_masks = np.zeros([*self.size,masks.shape[-1]],np.float32)
-            for i in range(masks.shape[-1]):
-                tmp_masks[...,i] = cv2.resize(masks[...,i], self.size, interpolation=cv2.INTER_NEAREST)
+            # tmp_masks = np.zeros([*self.size,masks.shape[-1]],np.float32)
+            # for i in range(masks.shape[-1]):
+            #     tmp_masks[...,i] = cv2.resize(masks[...,i], self.size, interpolation=cv2.INTER_NEAREST)
+            tmp_masks = resize(masks, self.size, mode="constant")
 
             target["masks"] = torch.from_numpy(tmp_masks)
 
@@ -293,9 +295,13 @@ class ResizeMinMax(object):
 
         if "masks" in target and target["masks"] is not None:
             masks = target["masks"].cpu().numpy()
-            tmp_masks = np.zeros([new_h,new_w, masks.shape[-1]], np.float32)
-            for i in range(masks.shape[-1]):
-                tmp_masks[..., i] = cv2.resize(masks[..., i], (new_w,new_h), interpolation=cv2.INTER_CUBIC)
+            # tmp_masks = np.zeros([new_h,new_w, masks.shape[-1]], np.float32)
+            # for i in range(masks.shape[-1]):
+                # tmp_masks[..., i] = cv2.resize(masks[..., i], (new_w,new_h), interpolation=cv2.INTER_CUBIC)
+
+            # tmp_masks = cv2.resize(masks, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+            tmp_masks = resize(masks, (new_h,new_w), mode="constant")
+
 
             target["masks"] = torch.from_numpy(tmp_masks)
 

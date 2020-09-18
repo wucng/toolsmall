@@ -31,7 +31,7 @@ def test_datasets():
     typeOfData = None
     # """
 
-    """
+    # """
     root = "/media/wucong/225A6D42D4FA828F1/datas/COCO"
     classes = ["person"]
     do_segm = False
@@ -43,9 +43,9 @@ def test_datasets():
     # """
 
     # """
-    root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
-    classes = ["person"]
-    typeOfData = "PennFudanDataset"
+    # root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
+    # classes = ["person"]
+    # typeOfData = "PennFudanDataset"
 
 
     # root = r"/media/wucong/225A6D42D4FA828F1/datas/balloon_dataset/balloon/train"
@@ -81,9 +81,9 @@ def test_datasets():
                # bboxAug.RandomRotate(angle=5),
                # bboxAug.RandomTranslate(), # 有问题
                # bboxAug.Augment(False),
-               # bboxAug.Pad(),
-               # bboxAug.Resize((416,416), False),
-               bboxAug.ResizeMinMax(600,1000),
+               bboxAug.Pad(),
+               bboxAug.Resize((416,416), False),
+               # bboxAug.ResizeMinMax(600,1000),
                # bboxAug.ResizeFixAndPad(),
                # bboxAug.RandomHSV(),
                # bboxAug.RandomCutout(),
@@ -102,12 +102,12 @@ def test_datasets():
     else:
         Data = None
 
-    dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=False)
+    # dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=False)
 
     # dataset = FDDBDataset(root, transforms=train_transforms, classes=classes)
     # dataset = WIDERFACEDataset(root, transforms=train_transforms, classes=classes)
 
-    # dataset = MSCOCOKeypointDataset(root,mode="minival",transforms=train_transforms,classes=classes,useMosaic=False)
+    dataset = MSCOCOKeypointDataset(root,mode="minival",transforms=train_transforms,classes=classes,useMosaic=False)
 
     data_loader = DataLoader(dataset, batch_size=1, shuffle=False,collate_fn=collate_fn, **kwargs)
 

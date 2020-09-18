@@ -460,7 +460,7 @@ def maybe_add_gradient_clipping(
 
 
 def build_optimizer(model: torch.nn.Module,base_lr:float=2.5e-4,
-                    weight_decay:float=1e-4,momentum:float=0.9,
+                    weight_decay:float=5e-4,momentum:float=0.9,
                     clip_gradients:bool=False,clip_type:str="value"
                     ) -> torch.optim.Optimizer:
     """
@@ -500,12 +500,12 @@ def build_optimizer(model: torch.nn.Module,base_lr:float=2.5e-4,
                 # hyperparameters are by default exactly the same as for regular
                 # weights.
                 lr = base_lr * 1.0
-                weight_decay = 1e-4
+                weight_decay = 5e-4
 
             # elif key.startswith('backbone') and value.requires_grad:
             elif 'backbone' in key and value.requires_grad:
                 lr = base_lr * 0.1 # 0.05
-                weight_decay = 1e-5
+                weight_decay = 5e-5
 
             params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
 
@@ -647,7 +647,7 @@ def build_lr_scheduler(
 
 
 def build_optimizer2(model: torch.nn.Module,base_lr:float=2.5e-4,
-                    weight_decay:float=1e-4,momentum:float=0.9) -> torch.optim.Optimizer:
+                    weight_decay:float=5e-4,momentum:float=0.9) -> torch.optim.Optimizer:
     # construct an optimizer
     # params = [p for p in self.network.parameters() if p.requires_grad]
     params = []

@@ -6,6 +6,11 @@ import torchvision
 import torch
 from torch.nn import functional as F
 
+try:
+    from .backbone import SeBlock,CBAM,resnetv2,resnetv3,resnetv4
+except:
+    from backbone import SeBlock, CBAM, resnetv2, resnetv3, resnetv4
+
 __all__=["Backbone","ResnetFpn","RPNHead","TwoMLPHead","FastRCNNPredictor"]
 
 class Backbone(nn.Module):
@@ -51,6 +56,13 @@ class Backbone(nn.Module):
                     break
             if flag:
                 parameter.requires_grad_(False)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m,(nn.BatchNorm2d, nn.GroupNorm)):
+               for parameter in m.parameters():
+                   parameter.requires_grad_(False)
+
 
     def forward(self,x):
         # x = self.backbone(x)
@@ -112,6 +124,351 @@ class BackboneV2(nn.Module):
             if parameter.requires_grad:
                 print("name:",name)
 
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+
+        return out
+
+# 增加贯通层 26 × 26 × 512-->13 × 13 × 2048
+class BackboneV2_yolov2(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        # out["res5"] = x
+
+        # passthrough layer
+        # 增加贯通层 26 × 26 × 512-->13 × 13 × 2048
+        bs,c,h,w = out["res4"].shape
+        x1 = out["res4"].contiguous().view(bs,-1,h//2,w//2)
+        x = torch.cat((x1,x),1)
+        out["res5"] = x
+
+        return out
+
+
+class BackboneV2_yolov3(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+
+        out["res3"] = torch.cat((out["res3"], F.interpolate(out["res4"], scale_factor=2.0, mode="nearest")), 1)
+        out["res4"] = torch.cat((out["res4"],F.interpolate(out["res5"], scale_factor=2.0, mode="nearest")),1)
+
+        return out
+
+# 整个backbone网络 stride=16
+class Backbone_s16(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        # _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        _model = resnetv2.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+
+        return out
+
+class Backbone_s8(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        # _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        _model = resnetv3.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+
+        return out
+
+class Backbone_s4(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        # _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        _model = resnetv4.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -144,7 +501,8 @@ class FPNNet(nn.Module):
         # initialize parameters now to avoid modifying the initialization of top_blocks
         for m in self.children():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_uniform_(m.weight, a=1)
+                # nn.init.kaiming_uniform_(m.weight, a=1)
+                nn.init.normal_(m.weight, 0.01)
                 nn.init.constant_(m.bias, 0)
 
     def forward(self,features):
@@ -184,7 +542,8 @@ class FPNNetV2(nn.Module):
         # initialize parameters now to avoid modifying the initialization of top_blocks
         for m in self.children():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_uniform_(m.weight, a=1)
+                # nn.init.kaiming_uniform_(m.weight, a=1)
+                nn.init.normal_(m.weight,0.01)
                 nn.init.constant_(m.bias, 0)
 
     def forward(self,features):
@@ -459,6 +818,43 @@ class FastRCNNPredictorV2(nn.Module):
         bbox_deltas = self.bbox_pred(x)
         return scores.flatten(1), bbox_deltas.flatten(1)
 
+class RFCNPredictor(nn.Module):
+    def __init__(self,in_channels,num_classes,k=7,hide_size=None,num_layers=0):
+        super().__init__()
+        if hide_size is None:hide_size = in_channels//2
+        # self.conv = nn.Conv2d(in_channels,hide_size,1,1)
+        # self.num_layers = num_layers
+        # if num_layers>0:
+        #     self.conv2 = nn.Sequential(*[nn.Sequential(nn.Conv2d(hide_size, hide_size, 3, 1, 1),
+        #                                               nn.ReLU(inplace=True)) for _ in range(num_layers)])
+
+        self.layer5 = _make_detnet_layer(self, in_channels=in_channels,hide_size=hide_size)
+        self.cls_score = nn.Conv2d(hide_size, num_classes*k*k, 1)
+        self.bbox_pred = nn.Conv2d(hide_size, num_classes*4*k*k, 1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.01)
+                # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        # x = self.conv(x)
+        # if self.num_layers>0:
+        #     x = self.conv2(x)
+
+        x = self.layer5(x)
+        scores = self.cls_score(x)
+        bbox_deltas = self.bbox_pred(x)
+        return scores, bbox_deltas
+
 class MaskRCNNHeads(nn.Sequential):
     def __init__(self, in_channels, layers, dilation):
         """
@@ -615,11 +1011,292 @@ class KeypointRCNNPredictorV2(nn.Module):
         )
         return x
 
+# -------------------------------------------------
+from torchvision.models.resnet import BasicBlock,Bottleneck
+
+# 增加一层
+class BackboneV3(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"],layers=2):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.layer5 = _model._make_layer(Bottleneck,self.out_channels//4,layers,stride=2,dilate=False)
+
+        for m in self.layer5.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),         # stride = 4
+            ("res2", _model.layer1), # stride = 4
+            ("res3", _model.layer2), # stride = 8
+            ("res4", _model.layer3), # stride = 16 --> rpn
+            ("res5", _model.layer4), # stride = 32
+            # ("res6",layer5)          # stride = 64 --> roi pool
+        ]))
+
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+        # x = self.backbone.res6(x)
+        x = self.layer5(x)
+        out["res6"] = x
+        return out
+
+# ---------------------------------------------------
+class detnet_bottleneck(nn.Module):
+    # no expansion
+    # dilation = 2
+    # type B use 1x1 conv
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1, block_type='A'):
+        super(detnet_bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=2, bias=False,dilation=2)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
+
+        # self.seblock = SeBlock(self.expansion*planes)
+        self.seblock = CBAM(self.expansion*planes)
+
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes or block_type=='B':
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+
+        out = self.seblock(out)
+
+        out += self.downsample(x)
+        out = F.relu(out)
+        return out
+
+def _make_detnet_layer(self, in_channels,hide_size=256):
+    layers = []
+    layers.append(detnet_bottleneck(in_planes=in_channels, planes=hide_size, block_type='B'))
+    layers.append(detnet_bottleneck(in_planes=hide_size, planes=hide_size, block_type='A'))
+    layers.append(detnet_bottleneck(in_planes=hide_size, planes=hide_size, block_type='A'))
+    return nn.Sequential(*layers)
+
+class RPNHeadYolov1(nn.Module):
+    def __init__(self, in_channels, num_classes, num_anchors):
+        super().__init__()
+
+        self.layer5 = _make_detnet_layer(self,in_channels=in_channels)
+        self.avgpool = nn.AvgPool2d(2)  # fit 448 input size
+        self.conv_end = nn.Conv2d(256, num_anchors*5+num_classes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn_end = nn.BatchNorm2d(num_anchors*5+num_classes)
+
+        self.num_anchors = num_anchors
+        self.num_classes = num_classes
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self,features):
+        x = features["res5"]
+        x = self.layer5(x)
+        x = self.avgpool(x)
+        # x = x.view(x.size(0), -1)
+        # x = self.fc(x)
+        x = self.conv_end(x)
+        x = self.bn_end(x)
+        # x = torch.sigmoid(x)
+        x = x.permute(0, 2, 3, 1)  # (-1,7,7,30)
+        bs = x.size(0)
+        bbox_reg = x[...,:self.num_anchors*5].contiguous().view(bs,-1,self.num_anchors,5)
+        logits = x[...,self.num_anchors*5:].contiguous().view(bs,-1,self.num_classes)
+        return logits, bbox_reg
+
+# ----------------retinanet-------------------------------------
+class BackboneV2_retinanet(nn.Module):
+    def __init__(self,model_name="resnet18",pretrained=False,freeze_at=["res1","res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
+        super().__init__()
+        model_dict = {'resnet18': 512,
+                      'resnet34': 512,
+                      'resnet50': 2048,
+                      'resnet101': 2048,
+                      'resnet152': 2048,
+                      'resnext50_32x4d': 2048,
+                      'resnext101_32x8d': 2048,
+                      'wide_resnet50_2': 2048,
+                      'wide_resnet101_2': 2048}
+
+        assert model_name in model_dict, "%s must be in %s" % (model_name, model_dict.keys())
+
+        self.out_channels = model_dict[model_name]
+        _model = torchvision.models.resnet.__dict__[model_name](pretrained=pretrained)
+        # backbone_size = _model.inplanes
+
+        layer0 = nn.Sequential(
+            _model.conv1,
+            _model.bn1,
+            _model.relu,
+            _model.maxpool
+        )
+        self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
+            ("res1",layer0),
+            ("res2", _model.layer1),
+            ("res3", _model.layer2),
+            ("res4", _model.layer3),
+            ("res5", _model.layer4),
+        ]))
+
+        self.res6 = nn.Conv2d(self.out_channels,self.out_channels,3,2,1)
+        self.res7 = nn.Conv2d(self.out_channels,self.out_channels,3,2,1)
+
+        for m in self.res6.modules():
+            if isinstance(m,nn.Conv2d):
+                torch.nn.init.normal_(m.weight, std=0.01)
+                torch.nn.init.constant_(m.bias, 0)
+        for m in self.res7.modules():
+            if isinstance(m,nn.Conv2d):
+                torch.nn.init.normal_(m.weight, std=0.01)
+                torch.nn.init.constant_(m.bias, 0)
+
+        # 参数冻结
+        for name in freeze_at:
+            for parameter in self.backbone[name].parameters():
+                parameter.requires_grad_(False)
+
+        # 统计所有可更新梯度的变量
+        print("只有以下变量做梯度更新:")
+        for name,parameter in self.backbone.named_parameters():
+            if parameter.requires_grad:
+                print("name:",name)
+
+        # 默认冻结 BN中的参数 不更新
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                for parameter in m.parameters():
+                    parameter.requires_grad_(False)
+
+    def forward(self,x):
+        out={}
+        x = self.backbone.res1(x)
+        x = self.backbone.res2(x)
+        out["res2"]=x
+        x = self.backbone.res3(x)
+        out["res3"] = x
+        x = self.backbone.res4(x)
+        out["res4"] = x
+        x = self.backbone.res5(x)
+        out["res5"] = x
+        x = self.res6(x)
+        out["res6"] = x
+        x = F.relu(self.res7(x))
+        out["res7"] = x
+
+        return out
+
+class ResnetFpnV2_retinanet(nn.Module):
+    def __init__(self,model_name,pretrained=False,freeze_at=["res1","res2","res3","res4","res5"],
+                 out_channels=256,useFPN=False):
+        super().__init__()
+        self.backbone = BackboneV2_retinanet(model_name,pretrained,freeze_at)
+        self.useFPN = useFPN
+        if self.useFPN:
+            self.out_channels = out_channels
+
+            # return_layers = {'res2': 0, 'res3': 1, 'res4': 2, 'res5': 3}
+            in_channels_stage2 = self.backbone.out_channels // 8
+            in_channels_dict = {
+                "res2":in_channels_stage2,
+                "res3":in_channels_stage2 * 2,
+                "res4":in_channels_stage2 * 4,
+                "res5":in_channels_stage2 * 8,
+                "res6":in_channels_stage2 * 8,
+                "res7":in_channels_stage2 * 8,
+            }
+
+            self.fpn = FPNNetV2(in_channels_dict,out_channels)
+        else:
+            self.out_channels = self.backbone.out_channels
+
+    def forward(self,x):
+        features = self.backbone(x)
+        if self.useFPN:
+            features = self.fpn(features)
+
+        return OrderedDict(features)
 
 if __name__=="__main__":
-    x = torch.rand([1,256,7,7])
+    # x = torch.rand([1,256,7,7])
     # net = ResnetFpnV2("resnet18",useFPN=True)
-    net = KeypointRCNNPredictorV2(256,256,17,2)
-    print(net)
+    # net = KeypointRCNNPredictorV2(256,256,17,2)
+    x = torch.randn([1,3,600,600])
+    # net = BackboneV2_retinanet("resnet18",True)
+    net = ResnetFpnV2_retinanet("resnet18",useFPN=True)
+    # print(net)
     pred = net(x)
-    print()
+    print(pred)

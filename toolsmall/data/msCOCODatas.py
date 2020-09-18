@@ -249,7 +249,7 @@ class MSCOCOKeypointDataset(Dataset):
 
 
 if __name__=="__main__":
-    classes = ["person"]
+    classes = ["__background__","person"]
     dataset = MSCOCOKeypointDataset("/media/wucong/225A6D42D4FA828F1/datas/COCO",mode="minival",classes=classes)
     for image,target in dataset:
         pass

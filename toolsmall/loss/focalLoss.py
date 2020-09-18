@@ -204,6 +204,55 @@ smooth_label_cross_entropy_loss_jit = torch.jit.script(
 )  # type: torch.jit.ScriptModule
 
 
+# -------------------自定义 focal loss---------------------------
+def sigmoid_focal_loss_binary(pred:torch.tensor,true:torch.tensor,alpha=0.25,gamma=2,reduction ="mean"):
+    """
+    p = sigmoid(p)
+    CE(p) = -y*log(p)-(1-y)*log(1-p)
+    """
+    assert reduction in ["mean","sum"]
+    assert pred.shape == true.shape
+
+    pred = torch.sigmoid(pred)
+
+    loss_positive = -(1-alpha)*(1-pred)**gamma*torch.log(pred)*true
+    loss_negative = -alpha*pred**gamma*torch.log(1-pred)*(1-true)
+
+    loss = loss_positive+loss_negative
+    if reduction == "sum":
+        loss = loss.sum()
+    else:
+        loss = loss.mean()
+
+    return loss
+
+def softmax_focal_loss_mullabels(pred:torch.tensor,true:torch.tensor,alpha=0.25,gamma=2,reduction ="mean"):
+    """
+    p = softmax(p)
+    CE(p) = -y*log(p)
+
+    or
+
+    CE(p) = -y*log_softmax(p)
+    """
+    assert reduction in ["mean", "sum"]
+    assert pred.shape == true.shape
+    pred = torch.softmax(pred,-1)
+
+    w = torch.ones_like(pred)
+    w[..., 0] *= alpha
+    w[..., 1:] *= 1 - alpha
+    # 归一化
+    w = torch.softmax(w, -1)
+
+    loss = - w*(1-pred)**gamma*torch.log(pred)*true
+
+    if reduction == "sum":
+        loss = loss.sum()
+    else:
+        loss = loss.mean()
+
+    return loss
 
 if __name__=="__main__":
     # pred = torch.rand([5,])

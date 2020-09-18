@@ -96,9 +96,11 @@ class PennFudanDataset(object):
         # labels = torch.zeros((num_objs,), dtype=torch.int64)
         # labels = torch.ones((num_objs,), dtype=torch.int64) # 包括背景，背景默认为0
         # masks = torch.as_tensor(masks, dtype=torch.uint8)
+        if self.useMosaic:
+            return img, None, boxes, labels, img_path
 
         return img,masks.transpose([1,2,0]).astype(np.float32), boxes, labels,img_path
-        # return img,masks, boxes, labels,img_path
+
 
     def __getitem__(self, idx):
         if self.useMosaic:
@@ -295,8 +297,11 @@ class PascalVOCDataset(Dataset):
         labels = []
         for obj in root.iter('object'):
             if not self.useDifficult:
-                difficult = obj.find('difficult').text
-                if int(difficult) == 1:continue
+                try:
+                    difficult = obj.find('difficult').text
+                    if int(difficult) == 1:continue
+                except:
+                    pass
             cls = obj.find('name').text
             if cls not in self.classes:# or int(difficult)==1:
                 continue
