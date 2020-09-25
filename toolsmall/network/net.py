@@ -5,6 +5,8 @@ from collections import OrderedDict
 import torchvision
 import torch
 from torch.nn import functional as F
+import math
+from torchvision.ops import roi_align,roi_pool
 
 try:
     from .backbone import SeBlock,CBAM,resnetv2,resnetv3,resnetv4
@@ -12,6 +14,56 @@ except:
     from backbone import SeBlock, CBAM, resnetv2, resnetv3, resnetv4
 
 __all__=["Backbone","ResnetFpn","RPNHead","TwoMLPHead","FastRCNNPredictor"]
+
+def _initParmas(self,modules):
+    # for m in self.children():
+    #     if isinstance(m, nn.Conv2d):
+    #         # nn.init.kaiming_uniform_(m.weight, a=1)
+    #         nn.init.normal_(m.weight, 0.01)
+    #         nn.init.constant_(m.bias, 0)
+
+    for m in modules:
+        if isinstance(m, (nn.Conv2d,nn.ConvTranspose2d)):
+            nn.init.normal_(m.weight, std=0.01)
+            # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            if m.bias is not None:
+                # nn.init.zeros_(m.bias)
+                nn.init.constant_(m.bias, 0)
+
+def _initParmas2(self,named_parameters):
+    for name, param in named_parameters:
+        if "weight" in name:
+            try:  # Conv2d
+                # nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")
+                nn.init.normal_(param, 0.01)
+            except:  # BN
+                nn.init.constant_(param, 1)
+        elif "bias" in name:
+            nn.init.constant_(param, 0)
+
+
+
+class Flatten(nn.Module):
+    """
+    :param
+    :return
+
+    :example
+        x = torch.rand([3,1000,1,1]);
+        x = Flatten()(x);
+        print(x.shape) # [3,1000]
+    """
+    def __init__(self):
+        super(Flatten, self).__init__()
+    def forward(self, x):
+        return torch.flatten(x,1)
 
 class Backbone(nn.Module):
     def __init__(self,model_name="resnet18",pretrained=False,nofreeze_at=["res2","res3","res4","res5"]):# ["res1","res2","res3","res4","res5"]
@@ -58,10 +110,10 @@ class Backbone(nn.Module):
                 parameter.requires_grad_(False)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m,(nn.BatchNorm2d, nn.GroupNorm)):
-               for parameter in m.parameters():
-                   parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m,(nn.BatchNorm2d, nn.GroupNorm)):
+        #        for parameter in m.parameters():
+        #            parameter.requires_grad_(False)
 
 
     def forward(self,x):
@@ -125,10 +177,10 @@ class BackboneV2(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -190,10 +242,10 @@ class BackboneV2_yolov2(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -263,10 +315,10 @@ class BackboneV2_yolov3(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -333,10 +385,10 @@ class Backbone_s16(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -399,10 +451,10 @@ class Backbone_s8(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -465,10 +517,10 @@ class Backbone_s4(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -484,6 +536,7 @@ class Backbone_s4(nn.Module):
 
         return out
 
+"""不推荐"""
 class FPNNet(nn.Module):
     def __init__(self,in_channels_list,out_channels):
         super(FPNNet, self).__init__()
@@ -499,18 +552,15 @@ class FPNNet(nn.Module):
             self.layer_blocks.append(layer_block_module)
 
         # initialize parameters now to avoid modifying the initialization of top_blocks
-        for m in self.children():
-            if isinstance(m, nn.Conv2d):
-                # nn.init.kaiming_uniform_(m.weight, a=1)
-                nn.init.normal_(m.weight, 0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self,self.modules())
+        # _initParmas2(self,self.named_parameters())
 
     def forward(self,features):
         # outNmae="" # "p"
         outs={}
         last_inner = None
         i = 0
-        for i,name in enumerate(sorted(features)):
+        for i,name in enumerate(sorted(features)[::-1]): # [C5,C4,C3,C2]
             inner_lateral = self.inner_blocks[i](features[name])
             feat_shape = inner_lateral.shape[-2:]
             if last_inner is None:
@@ -540,18 +590,16 @@ class FPNNetV2(nn.Module):
             self.layer_blocks[name] = (layer_block_module)
 
         # initialize parameters now to avoid modifying the initialization of top_blocks
-        for m in self.children():
-            if isinstance(m, nn.Conv2d):
-                # nn.init.kaiming_uniform_(m.weight, a=1)
-                nn.init.normal_(m.weight,0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
     def forward(self,features):
         # outNmae="" # "p"
         outs={}
         last_inner = None
         name = ""
-        for i,name in enumerate(sorted(features)):
+        for i,name in enumerate(sorted(features)[::-1]): # 至上而下  [C5,C4,C3,C2]
             inner_lateral = self.inner_blocks[name](features[name])
             feat_shape = inner_lateral.shape[-2:]
             if last_inner is None:
@@ -562,7 +610,7 @@ class FPNNetV2(nn.Module):
             outs[name] = self.layer_blocks[name](last_inner)
 
         # 最后一个做pool 只用于提取框
-        outs["pool"]=F.max_pool2d(outs[name], 1, 2, 0) # "pool"
+        # outs["pool"]=F.max_pool2d(outs[name], 1, 2, 0) # "pool"
 
         return outs
 
@@ -644,9 +692,8 @@ class RPNHead(nn.Module):
             in_channels, num_anchors * 4, kernel_size=1, stride=1
         )
 
-        for l in self.children():
-            torch.nn.init.normal_(l.weight, std=0.01)
-            torch.nn.init.constant_(l.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
 
     def forward(self, x):
         logits = []
@@ -678,9 +725,9 @@ class RPNHeadV2(nn.Module):
             in_channels, num_anchors * 4, kernel_size=1, stride=1
         )
 
-        for l in self.children():
-            torch.nn.init.normal_(l.weight, std=0.01)
-            torch.nn.init.constant_(l.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
     def forward(self, x):
         logits = {}
@@ -715,10 +762,8 @@ class RPNHeadV3(nn.Module):
             self.cls_logits[name] = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
             self.bbox_pred[name] = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
 
-        for l in self.children():
-            for name in rpn_names:
-                torch.nn.init.normal_(l[name].weight, std=0.01)
-                torch.nn.init.constant_(l[name].bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
 
     def forward(self, x):
         logits = {}
@@ -798,18 +843,8 @@ class FastRCNNPredictorV2(nn.Module):
         self.cls_score = nn.Conv2d(in_channels, num_classes, 1)
         self.bbox_pred = nn.Conv2d(in_channels, num_classes * 4, 1)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, std=0.01)
-                # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
 
     def forward(self,x):
         x = self.conv(x)
@@ -832,18 +867,8 @@ class RFCNPredictor(nn.Module):
         self.cls_score = nn.Conv2d(hide_size, num_classes*k*k, 1)
         self.bbox_pred = nn.Conv2d(hide_size, num_classes*4*k*k, 1)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, std=0.01)
-                # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
 
     def forward(self, x):
         # x = self.conv(x)
@@ -893,6 +918,7 @@ class MaskRCNNPredictor(nn.Sequential):
             # elif "bias" in name:
             #     nn.init.constant_(param, 0)
 
+"""输入shape [bs,m,7,7]"""
 class MaskRCNNPredictorV2(nn.Module):
     def __init__(self,in_channels,dim_reduced=256,num_classes=80,num_layers=2):
         super().__init__()
@@ -901,33 +927,24 @@ class MaskRCNNPredictorV2(nn.Module):
                                                   nn.ReLU(inplace=True)) for _ in range(num_layers)])
 
         self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, in_channels, 2, 2, 0),
+            nn.ReLU(inplace=True),
             nn.ConvTranspose2d(in_channels, dim_reduced, 2, 2, 0),
             nn.ReLU(inplace=True),
             nn.Conv2d(dim_reduced, num_classes, 1, 1, 0)
         )
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, std=0.01)
-                # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
 
         self.up_scale =2
 
     def forward(self,x):
         x = self.conv(x)
         x = self.deconv(x)
-        x = F.interpolate(
-            x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
-        )
+        # x = F.interpolate(
+        #     x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
+        # )
         return x
-
 
 
 class KeypointRCNNHeads(nn.Sequential):
@@ -980,35 +997,31 @@ class KeypointRCNNPredictorV2(nn.Module):
                                                   nn.ReLU(inplace=True)) for _ in range(num_layers)])
 
         self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, in_channels, 2, 2, 0),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(in_channels, in_channels, 2, 2, 0),
+            nn.ReLU(inplace=True),
             nn.ConvTranspose2d(in_channels, dim_reduced, 2, 2, 0),
             nn.ReLU(inplace=True),
-            nn.Conv2d(dim_reduced, num_keypoints, 1, 1, 0)
+            nn.Conv2d(dim_reduced, num_keypoints, 1, 1, 0),
+            # nn.Sigmoid()
         )
 
         self.up_scale = 2
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, std=0.01)
-                # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
     def forward(self,x):
         x = self.conv(x)
         x = self.deconv(x)
-        x = F.interpolate(
-            x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
-        )
-        x = F.interpolate(
-            x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
-        )
+        # x = F.interpolate(
+        #     x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
+        # )
+        # x = F.interpolate(
+        #     x, scale_factor=float(self.up_scale), mode="bilinear", align_corners=False
+        # )
         return x
 
 # -------------------------------------------------
@@ -1044,10 +1057,17 @@ class BackboneV3(nn.Module):
 
         for m in self.layer5.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                # nn.init.normal_(m.weight, std=0.01)
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                # if m.bias is not None:
+                #     nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+
 
         self.backbone = nn.ModuleDict(OrderedDict([ # nn.Sequential
             ("res1",layer0),         # stride = 4
@@ -1057,6 +1077,8 @@ class BackboneV3(nn.Module):
             ("res5", _model.layer4), # stride = 32
             # ("res6",layer5)          # stride = 64 --> roi pool
         ]))
+
+
 
 
         # 参数冻结
@@ -1071,10 +1093,10 @@ class BackboneV3(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -1118,12 +1140,9 @@ class detnet_bottleneck(nn.Module):
                 nn.BatchNorm2d(self.expansion*planes)
             )
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1155,13 +1174,9 @@ class RPNHeadYolov1(nn.Module):
         self.num_anchors = num_anchors
         self.num_classes = num_classes
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
     def forward(self,features):
         x = features["res5"]
@@ -1215,14 +1230,11 @@ class BackboneV2_retinanet(nn.Module):
         self.res6 = nn.Conv2d(self.out_channels,self.out_channels,3,2,1)
         self.res7 = nn.Conv2d(self.out_channels,self.out_channels,3,2,1)
 
-        for m in self.res6.modules():
-            if isinstance(m,nn.Conv2d):
-                torch.nn.init.normal_(m.weight, std=0.01)
-                torch.nn.init.constant_(m.bias, 0)
-        for m in self.res7.modules():
-            if isinstance(m,nn.Conv2d):
-                torch.nn.init.normal_(m.weight, std=0.01)
-                torch.nn.init.constant_(m.bias, 0)
+
+        _initParmas(self, self.res6.modules())
+        _initParmas(self, self.res7.modules())
+        # _initParmas2(self,self.named_parameters())
+
 
         # 参数冻结
         for name in freeze_at:
@@ -1236,10 +1248,10 @@ class BackboneV2_retinanet(nn.Module):
                 print("name:",name)
 
         # 默认冻结 BN中的参数 不更新
-        for m in self.backbone.modules():
-            if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                for parameter in m.parameters():
-                    parameter.requires_grad_(False)
+        # for m in self.backbone.modules():
+        #     if isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+        #         for parameter in m.parameters():
+        #             parameter.requires_grad_(False)
 
     def forward(self,x):
         out={}
@@ -1280,6 +1292,7 @@ class ResnetFpnV2_retinanet(nn.Module):
             }
 
             self.fpn = FPNNetV2(in_channels_dict,out_channels)
+            # self.fpn = PANet(in_channels_dict,out_channels)
         else:
             self.out_channels = self.backbone.out_channels
 
@@ -1290,13 +1303,160 @@ class ResnetFpnV2_retinanet(nn.Module):
 
         return OrderedDict(features)
 
+
+class ResnetPANet_retinanet(nn.Module):
+    def __init__(self,model_name,pretrained=False,freeze_at=["res1","res2","res3","res4","res5"],
+                 out_channels=256,useFPN=False):
+        super().__init__()
+        self.backbone = BackboneV2_retinanet(model_name,pretrained,freeze_at)
+        self.useFPN = useFPN
+        if self.useFPN:
+            self.out_channels = out_channels
+
+            # return_layers = {'res2': 0, 'res3': 1, 'res4': 2, 'res5': 3}
+            in_channels_stage2 = self.backbone.out_channels // 8
+            in_channels_dict = {
+                "res2":in_channels_stage2,
+                "res3":in_channels_stage2 * 2,
+                "res4":in_channels_stage2 * 4,
+                "res5":in_channels_stage2 * 8,
+                "res6":in_channels_stage2 * 8,
+                "res7":in_channels_stage2 * 8,
+            }
+
+            # self.fpn = FPNNetV2(in_channels_dict,out_channels)
+            self.fpn = PANet(in_channels_dict,out_channels)
+        else:
+            self.out_channels = self.backbone.out_channels
+
+    def forward(self,x):
+        features = self.backbone(x)
+        if self.useFPN:
+            features = self.fpn(features)
+
+        return OrderedDict(features)
+
+# ---------------PANet--------------------------------
+class PANet(nn.Module):
+    def __init__(self,in_channels_dict,out_channels=256):
+        super().__init__()
+        self.fpn = FPNNetV2(in_channels_dict,out_channels)
+
+        self.conv1 = nn.ModuleDict()
+        self.conv2 = nn.ModuleDict()
+        for name in in_channels_dict:
+            self.conv1[name] = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, 3, 2, 1),
+                nn.ReLU()
+            )
+            self.conv2[name] = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, 3, 1, 1),
+                nn.ReLU()
+            )
+
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
+    def forward(self,features):
+        features = self.fpn(features) # 先做fpn
+        outs = {}
+        pre_name = ""
+        for i, name in enumerate(sorted(features)):  # 至下而上  [P2,P3,P4,P5]
+            if i==0:
+                outs[name] = features[name]
+            else:
+                outs[name] = self.conv2[name](self.conv1[name](outs[pre_name])+features[name])
+
+            pre_name = name
+
+        return outs
+
+
+"""参考 PANet,输入shape [bs,m,14,14]"""
+class MaskRCNNPredictorV3(nn.Module):
+    def __init__(self,in_channels,dim_reduced=256,num_classes=80,num_layers=4):
+        super().__init__()
+        self.num_layers = num_layers
+        self.conv = nn.Sequential(*[nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, 1, 1),
+                                                  nn.ReLU(inplace=True)) for _ in range(num_layers)])
+        self.conv_fc = nn.Sequential(
+            nn.Conv2d(in_channels,in_channels,3,1,1),nn.ReLU(),
+            nn.Conv2d(in_channels,in_channels//2,3,1,1),nn.ReLU(),
+            Flatten(),
+            nn.Linear(14*14*in_channels//2,28*28),
+            nn.ReLU()
+        )
+
+
+        self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, dim_reduced, 2, 2, 0),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(dim_reduced, num_classes, 1, 1, 0)
+        )
+
+        _initParmas(self, self.modules())
+        # _initParmas2(self,self.named_parameters())
+
+        self.up_scale =2
+
+    def forward(self,x):
+
+        t = self.conv[:3](x)
+        x1 = self.deconv(self.conv[3:](x))
+        bs,c,h,w = x1.shape
+        x2 = self.conv_fc(t).contiguous().view(bs,1,h,w)
+
+        x = x1+x2
+
+        return x
+
+class AdaptiveFeaturePooling(nn.Module):
+    def __init__(self,names,strides,useAlign=False,op="max"):
+        super().__init__()
+        self.names = names
+        self.strides = strides
+        self.useAlign = useAlign
+        self.op = op
+        assert op in ["max","sum","mean"]
+
+    def forward(self,features,propose):
+        """
+        传统的FPN做法是按提议框的大小分级，映射到对应级的特征上，即每个提议框只会映射到一个特征map
+        PAnet 是将propose 映射到所有特征级别 (每个特征都做映射)，再取 max or sum or mean"""
+        out = []
+        for name,stride in zip(self.names,self.strides):
+            if self.useAlign:
+                x = roi_pool(features[name], propose, 14, spatial_scale=1.0 / stride)
+            else:
+                x = roi_align(features[name], propose, 14, spatial_scale=1.0 / stride, aligned=False)
+
+            out.append(x)
+
+        x = torch.stack(out,-1)
+
+        if self.op=="mean":
+            x = x.mean(-1)
+        elif self.op =="sum":
+            x = x.sum(-1)
+        else:
+            x = x.max(-1)
+
+        return x
+
+
 if __name__=="__main__":
     # x = torch.rand([1,256,7,7])
     # net = ResnetFpnV2("resnet18",useFPN=True)
     # net = KeypointRCNNPredictorV2(256,256,17,2)
-    x = torch.randn([1,3,600,600])
-    # net = BackboneV2_retinanet("resnet18",True)
-    net = ResnetFpnV2_retinanet("resnet18",useFPN=True)
+    # x = torch.randn([1,3,600,600])
+    net = BackboneV2_retinanet("resnet18",True)
+    # net = ResnetFpnV2_retinanet("resnet18",useFPN=True)
+    # net = RPNHeadYolov1(256,21,3)
+    # net = RPNHeadV3(256,3,["res3","res4"])
+    # net = MaskRCNNPredictorV2(256)
+    # x = torch.randn([1, 256, 14, 14])
+    # net = MaskRCNNPredictorV3(256)
+
     # print(net)
     pred = net(x)
     print(pred)

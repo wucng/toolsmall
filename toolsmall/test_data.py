@@ -1,5 +1,5 @@
 from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset
-from data.msCOCODatas import MSCOCOKeypointDataset
+from data.msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDatasetV2,MSCOCOKeypointDatasetV3
 from data import FDDBDataset,WIDERFACEDataset
 from data.augment import bboxAug
 from tools.visual.vis import vis_rect,vis_keypoints,vis_keypoints2,drawMask
@@ -81,9 +81,9 @@ def test_datasets():
                # bboxAug.RandomRotate(angle=5),
                # bboxAug.RandomTranslate(), # 有问题
                # bboxAug.Augment(False),
-               bboxAug.Pad(),
-               bboxAug.Resize((416,416), False),
-               # bboxAug.ResizeMinMax(600,1000),
+               # bboxAug.Pad(),
+               # bboxAug.Resize((416,416), False),
+               bboxAug.ResizeMinMax(600,1000),
                # bboxAug.ResizeFixAndPad(),
                # bboxAug.RandomHSV(),
                # bboxAug.RandomCutout(),
@@ -107,7 +107,7 @@ def test_datasets():
     # dataset = FDDBDataset(root, transforms=train_transforms, classes=classes)
     # dataset = WIDERFACEDataset(root, transforms=train_transforms, classes=classes)
 
-    dataset = MSCOCOKeypointDataset(root,mode="minival",transforms=train_transforms,classes=classes,useMosaic=False)
+    dataset = MSCOCOKeypointDatasetV3(root,mode="minival",year=2014,transforms=train_transforms,classes=classes,useMosaic=True)
 
     data_loader = DataLoader(dataset, batch_size=1, shuffle=False,collate_fn=collate_fn, **kwargs)
 
@@ -132,7 +132,7 @@ def test_datasets():
                 if "masks" in target:
                     # for idx in range(masks.shape[0]):
                     # mask Tensor[len(labels),img_h,img_w] # 每个目标对象对应一张mask，0代表背景，1表示目标
-                    data = drawMask(data,masks[...,idx],label,alpha=0.7)
+                    data = drawMask(data,masks[idx,...],label,alpha=0.7)
 
             if "keypoints" in target:
                 data = vis_keypoints2(data, target["keypoints"].to("cpu").numpy().transpose([0,2,1]),1)

@@ -99,7 +99,7 @@ class PennFudanDataset(object):
         if self.useMosaic:
             return img, None, boxes, labels, img_path
 
-        return img,masks.transpose([1,2,0]).astype(np.float32), boxes, labels,img_path
+        return img,masks, boxes, labels,img_path # masks.transpose([1,2,0]).astype(np.float32)
 
 
     def __getitem__(self, idx):

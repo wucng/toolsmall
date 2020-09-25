@@ -3,5 +3,5 @@ from .datasets import (PascalVOCDataset,PennFudanDataset,ValidDataset,glob_forma
 from .datasets2 import FDDBDataset,WIDERFACEDataset
 from .datasets3 import MSCOCODataset
 from .augment import bboxAug
-from .msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDataset2
+from .msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDataset2,MSCOCOKeypointDatasetV2,MSCOCOKeypointDatasetV3
 from .data import *

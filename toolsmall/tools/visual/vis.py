@@ -113,7 +113,7 @@ def drawMask(img,mask, label=1,colors=[],alpha=0.4):
     # mask
     # color_mask = [255, 184,99]  # BGR
     color_mask = np.asarray(color, np.uint8).reshape([1, 3])
-    img = vis_mask(img, mask, color_mask, alpha, False)  # True
+    img = vis_mask(img, mask.astype(np.uint8), color_mask, alpha, True)  # True
 
     return img
 
