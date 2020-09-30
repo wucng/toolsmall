@@ -17,6 +17,9 @@ import cv2,json,math
 from torch.utils.data import Dataset,DataLoader
 from torchvision.datasets.vision import VisionDataset
 from torchvision.datasets.voc import *
+import pickle
+from tqdm import tqdm
+import pandas as pd
 
 from .augment.uils import glob_format,resize_boxes,random_affine,mosaic_resize,mosaic_crop,mosaic_origin,mixup
 
@@ -284,7 +287,14 @@ class PascalVOCDataset(Dataset):
         self.transforms = transforms
         self.classes=classes
         self.useDifficult = useDifficult
-        self.annotations = self.change2csv()
+
+        if not os.path.exists(self.root+".pkl"):
+            annotations = self.change2csv()
+            pickle.dump(annotations, open(self.root+".pkl", "wb"))
+        else:
+            annotations = pickle.load(open(self.root+".pkl", "rb"))
+
+        self.annotations = annotations
 
         self.useMosaic=useMosaic
 
@@ -319,7 +329,7 @@ class PascalVOCDataset(Dataset):
         annotations = []
         xml_files=list(sorted(glob_format(os.path.join(self.root, "Annotations"))))
 
-        for idx,xml in enumerate(xml_files):
+        for idx,xml in tqdm(enumerate(xml_files)):
             img_path = xml.replace("Annotations", "JPEGImages").replace(".xml", ".jpg")
             boxes,labels=self.parse_xml(xml)
             if len(labels)>0:
@@ -558,6 +568,82 @@ class FruitsNutsDataset(Dataset):
             img, target = self.transforms(img, target)
 
         return img, target
+
+
+class CarDataset(Dataset):
+    """https://www.kaggle.com/sshikamaru/car-object-detection"""
+    def __init__(self, root="", year=None, transforms=None, classes=[], useMosaic=False):
+        self.root = root
+        self.transforms = transforms
+        self.classes = classes
+        self.useMosaic = useMosaic
+        assert "car" in self.classes
+
+        df = pd.read_csv(os.path.join(root,'train_solution_bounding_boxes (1).csv'))
+        df.rename(columns={'image': 'image_id'}, inplace=True)
+        self.annotations = self.change_csv(df)
+        self.keys = list(self.annotations.keys())
+        self.keys.sort()
+
+    def change_csv(self,df):
+        values = df.to_numpy()
+        result = {}
+        for v in values:
+            if v[0] not in result:
+                result[v[0]]=[]
+            result[v[0]].append(v[1:])
+
+        return result
+
+    def load(self, idx):
+        key = self.keys[idx]
+        annotations = self.annotations[key]
+        img_path = os.path.join(self.root,"training_images",key)
+        img = np.asarray(Image.open(img_path).convert("RGB"), np.uint8)
+        boxes = annotations
+        labels = [self.classes.index("car")]*len(boxes)
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        mask = None
+        return img, mask, boxes, labels, img_path
+
+
+    def __len__(self):
+        return len(self.keys)
+
+    def __getitem__(self, idx):
+        if self.useMosaic:
+            # state = np.random.choice(["general", "ricap", "mixup"], 1)[0]
+            state = np.random.choice(["general", "ricap"], 1)[0]
+            if state == "general":
+                img, mask, boxes, labels, img_path = self.load(idx)
+            elif state == "ricap":
+                # img,mask, boxes, labels, img_path = mosaic_origin(self,idx)
+                # img,mask, boxes, labels, img_path = mosaic_resize(self,idx)
+                img, mask, boxes, labels, img_path = mosaic_crop(self, idx)
+            else:
+                # img,mask, boxes, labels,img_path = mixup(self,idx)
+                pass
+        else:
+            img, mask, boxes, labels, img_path = self.load(idx)
+
+        img = Image.fromarray(img)
+        iscrowd = torch.zeros_like(labels, dtype=torch.float32)
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+
+        target = {}
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["image_id"] = torch.tensor([idx])
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+        target["path"] = img_path
+
+        if self.transforms is not None:
+            img, target = self.transforms(img, target)
+
+        return img, target
+
 
 
 class ValidDataset(Dataset):

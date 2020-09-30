@@ -4,7 +4,10 @@ try:
     flag=True
 except:
     from .nms.nms import nms2
-from .visual.vis import vis_rect,vis_keypoints2,drawMask
+try:
+    from visual.vis import vis_rect,vis_keypoints2,drawMask
+except:
+    from .visual.vis import vis_rect,vis_keypoints2,drawMask
 import torch
 from torch import nn
 import cv2
@@ -14,6 +17,7 @@ import numpy as np
 from itertools import product
 from torchvision.ops import misc as misc_nn_ops
 import matplotlib.pyplot as plt
+import math
 
 def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
     """
@@ -145,7 +149,7 @@ def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
 
         return {"scores": last_scores, "labels": last_labels, "boxes": last_boxes}
 
-def draw_rect(image, pred,classes=[]):
+def draw_rect(image, pred,classes=[],inside=False):
     """
     Parameters
     ----------
@@ -177,10 +181,10 @@ def draw_rect(image, pred,classes=[]):
             class_str = "%s:%.3f" % (int(label), score)
         pos = list(map(int, bbox))
 
-        image = vis_rect(image, pos, class_str, 0.5, int(label))
+        image = vis_rect(image, pos, class_str, 0.5, int(label),inside=inside)
     return image
 
-def draw_rect_mask(image, pred,classes=[]):
+def draw_rect_mask(image, pred,classes=[],inside=False):
     """
     Parameters
     ----------
@@ -218,7 +222,7 @@ def draw_rect_mask(image, pred,classes=[]):
             class_str = "%s:%.3f" % (int(label), score)
         pos = list(map(int, bbox))
 
-        image = vis_rect(image, pos, class_str, 0.5, int(label),useMask=False)
+        image = vis_rect(image, pos, class_str, 0.5, int(label),inside=inside,useMask=False)
         if "masks" in pred:
             mask = masks[idx]
             if mask.max() > 0:
@@ -590,10 +594,419 @@ def heatmap2indexV2(heatmap:torch.tensor,heatmap2:torch.tensor=None,thres=0.5,ha
     return scores, labels,cycx,keep,heatmap2
 
 
+def gaussian_radius(det_size, min_overlap=0.7):
+    """
+    :param det_size: boxes的[h,w]，已经所放到heatmap上
+    :param min_overlap:
+    :return:
+    """
+    height, width = det_size
 
+    a1 = 1
+    b1 = (height + width)
+    c1 = width * height * (1 - min_overlap) / (1 + min_overlap)
+    sq1 = np.sqrt(b1 ** 2 - 4 * a1 * c1)
+    r1 = (b1 + sq1) / 2
+
+    a2 = 4
+    b2 = 2 * (height + width)
+    c2 = (1 - min_overlap) * width * height
+    sq2 = np.sqrt(b2 ** 2 - 4 * a2 * c2)
+    r2 = (b2 + sq2) / 2
+
+    a3 = 4 * min_overlap
+    b3 = -2 * min_overlap * (height + width)
+    c3 = (min_overlap - 1) * width * height
+    sq3 = np.sqrt(b3 ** 2 - 4 * a3 * c3)
+    r3 = (b3 + sq3) / 2
+    return min(r1, r2, r3)
+
+
+def gaussian2D(shape, sigma=1):
+    m, n = [(ss - 1.) / 2. for ss in shape]
+    y, x = np.ogrid[-m:m + 1, -n:n + 1]
+
+    h = np.exp(-(x * x + y * y) / (2 * sigma * sigma))
+    h[h < np.finfo(h.dtype).eps * h.max()] = 0
+    return h
+
+
+def draw_umich_gaussian(heatmap, center, radius, k=1):
+    """
+    :param heatmap: [128,128]
+    :param center: [x,y]
+    :param radius: int
+    :param k:
+    :return:
+    """
+    diameter = 2 * radius + 1
+    gaussian = gaussian2D((diameter, diameter), sigma=diameter / 6)
+
+    x, y = int(center[0]), int(center[1])
+
+    height, width = heatmap.shape[0:2]
+
+    left, right = min(x, radius), min(width - x, radius + 1)
+    top, bottom = min(y, radius), min(height - y, radius + 1)
+
+    masked_heatmap = heatmap[y - top:y + bottom, x - left:x + right]
+    masked_gaussian = gaussian[radius - top:radius + bottom, radius - left:radius + right]
+    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
+        np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
+    return heatmap
+
+
+def draw_dense_reg(regmap, heatmap, center, value, radius, is_offset=False):
+    diameter = 2 * radius + 1
+    gaussian = gaussian2D((diameter, diameter), sigma=diameter / 6)
+    value = np.array(value, dtype=np.float32).reshape(-1, 1, 1)
+    dim = value.shape[0]
+    reg = np.ones((dim, diameter * 2 + 1, diameter * 2 + 1), dtype=np.float32) * value
+    if is_offset and dim == 2:
+        delta = np.arange(diameter * 2 + 1) - radius
+        reg[0] = reg[0] - delta.reshape(1, -1)
+        reg[1] = reg[1] - delta.reshape(-1, 1)
+
+    x, y = int(center[0]), int(center[1])
+
+    height, width = heatmap.shape[0:2]
+
+    left, right = min(x, radius), min(width - x, radius + 1)
+    top, bottom = min(y, radius), min(height - y, radius + 1)
+
+    masked_heatmap = heatmap[y - top:y + bottom, x - left:x + right]
+    masked_regmap = regmap[:, y - top:y + bottom, x - left:x + right]
+    masked_gaussian = gaussian[radius - top:radius + bottom,
+                      radius - left:radius + right]
+    masked_reg = reg[:, radius - top:radius + bottom,
+                 radius - left:radius + right]
+    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
+        idx = (masked_gaussian >= masked_heatmap).reshape(
+            1, masked_gaussian.shape[0], masked_gaussian.shape[1])
+        masked_regmap = (1 - idx) * masked_regmap + idx * masked_reg
+    regmap[:, y - top:y + bottom, x - left:x + right] = masked_regmap
+    return regmap
+
+
+def draw_msra_gaussian(heatmap, center, sigma):
+    """
+    :param heatmap: [128,128]
+    :param center: [x,y]
+    :param sigma: int
+    :return:
+    """
+    tmp_size = sigma * 3
+    mu_x = int(center[0] + 0.5)
+    mu_y = int(center[1] + 0.5)
+    w, h = heatmap.shape[0], heatmap.shape[1]
+    ul = [int(mu_x - tmp_size), int(mu_y - tmp_size)]
+    br = [int(mu_x + tmp_size + 1), int(mu_y + tmp_size + 1)]
+    if ul[0] >= h or ul[1] >= w or br[0] < 0 or br[1] < 0:
+        return heatmap
+    size = 2 * tmp_size + 1
+    x = np.arange(0, size, 1, np.float32)
+    y = x[:, np.newaxis]
+    x0 = y0 = size // 2
+    g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
+    g_x = max(0, -ul[0]), min(br[0], h) - ul[0]
+    g_y = max(0, -ul[1]), min(br[1], w) - ul[1]
+    img_x = max(0, ul[0]), min(br[0], h)
+    img_y = max(0, ul[1]), min(br[1], w)
+    heatmap[img_y[0]:img_y[1], img_x[0]:img_x[1]] = np.maximum(
+        heatmap[img_y[0]:img_y[1], img_x[0]:img_x[1]],
+        g[g_y[0]:g_y[1], g_x[0]:g_x[1]])
+    return heatmap
+
+# ----------------------------------------------------
+
+
+"""centernet 的方式标记 heatmap (只标记中心点及其附近点)"""
+def drawHeatMapV1(hm:torch.tensor,box:torch.tensor,device="cpu"):
+    """
+    :param hm: torch.tensor  shape [128,128]
+    :param box: torch.tensor  [x1,y1,x2,y2] 缩减到 hm 大小上
+    :return:
+    """
+    hm = hm.cpu().numpy()
+    x1,y1,x2,y2 = box
+    h,w = y2-y1,x2-x1
+    cx,cy = (x2+x1)/2.,(y2+y1)/2.
+    cx,cy = cx.int().item(),cy.int().item()
+    h,w = h.item(),w.item()
+    radius = gaussian_radius((h,w))
+    # radius = math.sqrt(h*w) # 不推荐
+    radius = max(1, int(radius))
+    # hm = torch.from_numpy(draw_msra_gaussian(hm, (cx,cy), radius)).to(device) # 等价于 drawHeatMapV2
+    hm = torch.from_numpy(draw_umich_gaussian(hm, (cx,cy), radius)).to(device)
+    return hm
+
+"""参考 centernet 的方式标记 heatmap 并改进"""
+def drawHeatMapV2(hm:torch.tensor,box:torch.tensor,device="cpu"):
+    """
+    :param hm: torch.tensor  shape [128,128]
+    :param box: torch.tensor  [x1,y1,x2,y2] 缩减到 hm 大小上
+    :return:
+    """
+    # hm = hm.cpu().numpy()
+    x1,y1,x2,y2 = box
+    h,w = y2-y1,x2-x1
+    cx,cy = (x2+x1)/2.,(y2+y1)/2.
+    cx,cy = cx.int().item(),cy.int().item()
+    h,w = h.item(),w.item()
+    radius = gaussian_radius((h,w))
+    # radius = math.sqrt(h*w)# 不推荐
+    radius = max(1, int(radius))
+
+    hm = draw_gaussian2(hm,(cy,cx),radius)
+
+    return hm
+
+"""使用fcos 方式标记 heatmap，即框内所有点都做标记"""
+def drawHeatMapV3(hm:torch.tensor,box:torch.tensor,device="cpu"):
+    """
+    :param hm: torch.tensor  shape [128,128]
+    :param box: torch.tensor  [x1,y1,x2,y2] 缩减到 hm 大小上 (注： box 已经按照从大到小排序好)
+    :return:
+    """
+    # hm = hm.cpu().numpy()
+    x1,y1,x2,y2 = box
+    int_x1 = x1.ceil().int().item()
+    int_y1 = y1.ceil().int().item()
+    int_x2 = x2.floor().int().item()
+    int_y2 = y2.floor().int().item()
+    for y,x in product(range(int_y1,int_y2),range(int_x1,int_x2)):
+        l = x - x1
+        t = y - y1
+        r = x2 - x
+        b = y2 - y
+        # centerness = math.sqrt((min(l, r) / max(l, r)) * (min(t, b) / max(t, b)))
+        centerness = (min(l, r) / max(l, r)) * (min(t, b) / max(t, b))
+        # centerness *= np.exp(centerness-1)
+        hm[y,x] = centerness
+
+    return hm
+
+def drawHeatMapV0(hm:torch.tensor,box:torch.tensor,device="cpu",thred_radius=1):
+    """
+    :param hm: torch.tensor  shape [128,128]
+    :param box: torch.tensor  [x1,y1,x2,y2] 缩减到 hm 大小上
+    :return:
+    """
+    hm = hm.cpu().numpy()
+    x1,y1,x2,y2 = box
+    h,w = y2-y1,x2-x1
+    cx,cy = (x2+x1)/2.,(y2+y1)/2.
+    cx,cy = cx.int().item(),cy.int().item()
+    h,w = h.item(),w.item()
+    radius = int(gaussian_radius((h,w)))
+    # radius = math.sqrt(h*w) # 不推荐
+    # radius = max(1, radius)
+    if radius > thred_radius:
+        hm = torch.from_numpy(draw_umich_gaussian(hm, (cx,cy), radius)).to(device)
+    else:
+        radius = thred_radius
+        hm = torch.from_numpy(draw_msra_gaussian(hm, (cx,cy), radius)).to(device) # 等价于 drawHeatMapV2
+    return hm
+
+"""取综合结果
+# 推荐使用
+"""
+def drawHeatMap(hm:torch.tensor,box:torch.tensor,device="cpu",thred_radius=1,dosegm=False):
+    """
+   :param hm: torch.tensor  shape [128,128]
+   :param box: torch.tensor  [x1,y1,x2,y2] 缩减到 hm 大小上 (注： box 已经按照从大到小排序好)
+   :return:
+   """
+    x1, y1, x2, y2 = box
+    h, w = y2 - y1, x2 - x1
+    h, w = h.item(), w.item()
+    radius = int(gaussian_radius((h, w)))
+
+    if dosegm:
+        if radius <= thred_radius:
+            return drawHeatMapV3(hm,box,device)
+        else:
+            return drawHeatMapV1(hm,box,device)
+    else:
+        return drawHeatMapV1(hm, box, device)
+
+# ------------------------------------------------------
+def _gather_feat(feat, ind, mask=None):
+    dim  = feat.size(2)
+    ind  = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
+    feat = feat.gather(1, ind)
+    if mask is not None:
+        mask = mask.unsqueeze(2).expand_as(feat)
+        feat = feat[mask]
+        feat = feat.view(-1, dim)
+    return feat
+
+def _nms(heat, kernel=3):
+    """
+    :param heat: torch.tensor [bs,c,h,w]
+    :param kernel:
+    :return:
+    """
+    pad = (kernel - 1) // 2
+
+    hmax = nn.functional.max_pool2d(
+        heat, (kernel, kernel), stride=1, padding=pad)
+    keep = (hmax == heat).float()
+    return heat * keep
+
+
+def _topk(scores, K=40):
+    """
+    :param scores:  torch.tensor [bs,c,h,w]
+    :param K:
+    :return:
+    """
+    batch, cat, height, width = scores.size()
+
+    topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), K) # 每个类别取前K个 shape : [batch,cat,K]
+
+    # topk_inds = topk_inds % (height * width)
+    topk_ys = (topk_inds / width).int().float() # [batch,cat,K]
+    topk_xs = (topk_inds % width).int().float() # [batch,cat,K]
+
+    topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), K) # 按分数排序取 前K个 shape：[batch,K]
+    topk_clses = (topk_ind / K).int() # 计算对应的类别 id
+    topk_inds = _gather_feat(
+        topk_inds.view(batch, -1, 1), topk_ind).view(batch, K)
+    topk_ys = _gather_feat(topk_ys.view(batch, -1, 1), topk_ind).view(batch, K)
+    topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
+
+    return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
+
+def _topk2(scores, K=40):
+    """
+    :param scores:  torch.tensor [bs,c,h,w] , batch=1
+    :param K:
+    :return:
+    """
+    batch, cat, height, width = scores.size()
+
+    topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), K) # 每个类别取前K个 shape : [batch,cat,K]
+
+    # topk_inds = topk_inds % (height * width)
+    topk_ys = (topk_inds / width).int().float() # [batch,cat,K]
+    topk_xs = (topk_inds % width).int().float() # [batch,cat,K]
+
+    topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), K) # 按分数排序取 前K个 shape：[batch,K]
+    topk_clses = (topk_ind / K).int() # 计算对应的类别 id
+    topk_k = (topk_ind % K).int()
+
+    _topk_inds = []
+    _topk_ys = []
+    _topk_xs = []
+    for c,k in zip(topk_clses,topk_k):
+        _topk_inds.append(topk_inds[:,c,k])
+        _topk_ys.append(topk_ys[:,c,k])
+        _topk_xs.append(topk_xs[:,c,k])
+
+    topk_inds = torch.stack(_topk_inds,-1)
+    topk_ys = torch.stack(_topk_ys,-1)
+    topk_xs = torch.stack(_topk_xs,-1)
+
+    # topk_inds = _gather_feat(
+    #     topk_inds.view(batch, -1, 1), topk_ind).view(batch, K)
+    # topk_ys = _gather_feat(topk_ys.view(batch, -1, 1), topk_ind).view(batch, K)
+    # topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
+
+    return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
+
+
+def _topk3(scores,regBoxes, K=40):
+    """
+    :param scores:  torch.tensor [h,w,c]  包括背景
+    :param regBoxes:  torch.tensor [h,w,c,4]
+    :param K:
+    :return:
+    """
+    height, width,cat = scores.size()
+
+    regBoxes = regBoxes.contiguous().view(-1,4)
+
+    topk_scores, topk_inds = torch.topk(scores.view(-1,cat), K,0) # 每个类别取前K个 shape : [K,cat]
+    regBoxes = regBoxes[topk_inds] # [K,cat,4]
+
+    # topk_inds = topk_inds % (height * width)
+    # topk_ys = (topk_inds / width).int().float() # [K,cat]
+    topk_ys = (topk_inds // width).int().float() # [K,cat]
+    topk_xs = (topk_inds % width).int().float() # [K,cat]
+
+    topk_score, topk_ind = torch.topk(topk_scores.view(-1), K) # 按分数排序取 前K个 shape：[batch,K]
+    # topk_k = (topk_ind / cat).int()
+    topk_k = (topk_ind // cat).int()
+    topk_clses = (topk_ind % cat).int()# 计算对应的类别 id
+
+    _topk_inds = []
+    _topk_ys = []
+    _topk_xs = []
+    _regBoxes = []
+    for c,k in zip(topk_clses,topk_k):
+        _topk_inds.append(topk_inds[k,c])
+        _topk_ys.append(topk_ys[k,c])
+        _topk_xs.append(topk_xs[k,c])
+        _regBoxes.append(regBoxes[k,c])
+
+    topk_inds = torch.stack(_topk_inds,-1)
+    topk_ys = torch.stack(_topk_ys,-1)
+    topk_xs = torch.stack(_topk_xs,-1)
+    regBoxes = torch.stack(_regBoxes,0)
+
+    # topk_inds = _gather_feat(
+    #     topk_inds.view(batch, -1, 1), topk_ind).view(batch, K)
+    # topk_ys = _gather_feat(topk_ys.view(batch, -1, 1), topk_ind).view(batch, K)
+    # topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
+
+    return topk_score, regBoxes, topk_clses, topk_ys, topk_xs
 
 
 if __name__ == "__main__":
-    heatmap = torch.rand([28,28,10])
-    heatmap2 = torch.rand([28,28,10,4])
-    heatmap2indexV2(heatmap,heatmap2,0.5,True)
+    # scores = torch.rand([128,128,21])
+    # regBoxes = torch.rand([128,128,21,4])
+    # _topk3(scores,regBoxes)
+    # exit(0)
+
+    # heatmap = torch.rand([28,28,10])
+    # heatmap2 = torch.rand([28,28,10,4])
+    # heatmap2indexV2(heatmap,heatmap2,0.5,True)
+    # radius = gaussian_radius((21,32)) # (21,32) 缩放到 heatmap上
+    # radius = max(1, int(radius))
+    # hm = np.zeros([128,128],np.float32)
+    # hm = draw_umich_gaussian(hm,(64,64),radius) # 小
+    # hm2 = np.zeros([128, 128], np.float32)
+    # hm2 = draw_msra_gaussian(hm2, (64, 64), radius) # 大
+
+    hm = torch.zeros((128,128))
+    # draw_msra_gaussian(hm.clone().numpy(),(64,64),1)
+    # draw_umich_gaussian(hm.clone().numpy(),(64,64),3)
+    # draw_gaussian2(hm,(64,64),1)
+    # box = torch.tensor((34,34,94,94),dtype=torch.float32)
+    box = torch.tensor((44,44,84,84),dtype=torch.float32)
+    # box = torch.tensor((54,54,74,74),dtype=torch.float32)
+    # box = torch.tensor((59,59,69,69),dtype=torch.float32)
+    # box = torch.tensor((62,62,66,66),dtype=torch.float32)
+    hm1 = drawHeatMapV1(hm.clone(),box).cpu().numpy()
+    hm2 = drawHeatMapV2(hm.clone(),box).cpu().numpy()
+    hm3 = drawHeatMapV3(hm.clone(),box).cpu().numpy()
+    hm4 = drawHeatMap(hm.clone(),box).cpu().numpy()
+    hm5 = drawHeatMapV0(hm.clone(),box).cpu().numpy()
+    wh = box[2:]-box[:2]
+    w = wh[0].item()
+    h = wh[1].item()
+    radius = gaussian_radius((h, w))
+    print(radius)
+
+    plt.subplot(1,5,1)
+    plt.imshow(hm1,"gray")
+    plt.subplot(1, 5, 2)
+    plt.imshow(hm2, "gray")
+    plt.subplot(1, 5, 3)
+    plt.imshow(hm3, "gray")
+    plt.subplot(1, 5, 4)
+    plt.imshow(hm4, "gray")
+    plt.subplot(1, 5, 5)
+    plt.imshow(hm5, "gray")
+    plt.show()

@@ -1,4 +1,4 @@
-from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset
+from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset,CarDataset
 from data.msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDatasetV2,MSCOCOKeypointDatasetV3
 from data import FDDBDataset,WIDERFACEDataset
 from data.augment import bboxAug
@@ -31,7 +31,7 @@ def test_datasets():
     typeOfData = None
     # """
 
-    # """
+    """
     root = "/media/wucong/225A6D42D4FA828F1/datas/COCO"
     classes = ["person"]
     do_segm = False
@@ -41,6 +41,10 @@ def test_datasets():
     typeOfData = None
 
     # """
+
+    root = r"/media/wucong/225A6D42D4FA828F1/datas/car_data"
+    classes = ["car"]
+    typeOfData = "CarDataset"
 
     # """
     # root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
@@ -99,15 +103,17 @@ def test_datasets():
         Data = BalloonDataset
     elif typeOfData == "FruitsNutsDataset":
         Data = FruitsNutsDataset
+    elif typeOfData == "CarDataset":
+        Data = CarDataset
     else:
         Data = None
 
-    # dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=False)
+    dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=True)
 
     # dataset = FDDBDataset(root, transforms=train_transforms, classes=classes)
     # dataset = WIDERFACEDataset(root, transforms=train_transforms, classes=classes)
 
-    dataset = MSCOCOKeypointDatasetV3(root,mode="minival",year=2014,transforms=train_transforms,classes=classes,useMosaic=True)
+    # dataset = MSCOCOKeypointDatasetV3(root,mode="minival",year=2014,transforms=train_transforms,classes=classes,useMosaic=True)
 
     data_loader = DataLoader(dataset, batch_size=1, shuffle=False,collate_fn=collate_fn, **kwargs)
 

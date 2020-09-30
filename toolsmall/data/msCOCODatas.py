@@ -33,7 +33,9 @@ class MSCOCOKeypointDataset2(Dataset):
             annotations = self.change_csv(imgs_anns)
             pickle.dump(annotations,open(pklfile,"wb"))
         else:
-            self.annotations = pickle.load(open(pklfile,"rb"))
+            annotations = pickle.load(open(pklfile,"rb"))
+
+        self.annotations = annotations
 
     def change_csv(self,imgs_anns):
         # 找到每张图片所以标注，组成一个list

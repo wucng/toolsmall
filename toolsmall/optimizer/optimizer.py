@@ -461,7 +461,8 @@ def maybe_add_gradient_clipping(
 
 def build_optimizer(model: torch.nn.Module,base_lr:float=2.5e-4,
                     weight_decay:float=5e-4,momentum:float=0.9,
-                    clip_gradients:bool=False,clip_type:str="value"
+                    clip_gradients:bool=False,clip_type:str="value",
+                    gamma = 0.5,mode = "rmsprop"
                     ) -> torch.optim.Optimizer:
     """
     Build an optimizer from config.
@@ -499,19 +500,26 @@ def build_optimizer(model: torch.nn.Module,base_lr:float=2.5e-4,
                 # and WEIGHT_DECAY_BIAS to WEIGHT_DECAY so that bias optimizer
                 # hyperparameters are by default exactly the same as for regular
                 # weights.
-                lr = base_lr * 1.0
-                weight_decay = 5e-4
+                lr = base_lr
+                weight_decay = weight_decay
 
             # elif key.startswith('backbone') and value.requires_grad:
             elif 'backbone' in key and value.requires_grad:
-                lr = base_lr * 0.1 # 0.05
-                weight_decay = 5e-5
+                lr = base_lr * gamma
+                weight_decay = weight_decay*gamma
 
             params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
 
-    # optimizer = torch.optim.SGD(params, base_lr, momentum=momentum)
-    optimizer = torch.optim.RMSprop(params, base_lr, momentum=momentum)
-    # optimizer = torch.optim.AdamW(params, base_lr, weight_decay=5e-4)
+    if mode.lower()=="sgd":
+        optimizer = torch.optim.SGD(params, base_lr, momentum=momentum)
+    elif mode.lower()=="rmsprop":
+        optimizer = torch.optim.RMSprop(params, base_lr, momentum=momentum)
+    elif mode.lower()=="adam":
+        optimizer = torch.optim.Adam(params,base_lr,weight_decay=weight_decay)
+    elif mode.lower()=="adamw":
+        optimizer = torch.optim.AdamW(params, base_lr, weight_decay=weight_decay)
+    else:
+        raise("mode must in [sgd,rmsprop,adam,adamw]")
     optimizer = maybe_add_gradient_clipping(optimizer,clip_gradients,clip_type)
     return optimizer
 
@@ -646,20 +654,29 @@ def build_lr_scheduler(
         raise ValueError("Unknown LR scheduler: {}".format(name))
 
 
-def build_optimizer2(model: torch.nn.Module,base_lr:float=2.5e-4,
-                    weight_decay:float=5e-4,momentum:float=0.9) -> torch.optim.Optimizer:
+def build_optimizerV2(model: torch.nn.Module,base_lr:float=2.5e-4,
+                    weight_decay:float=5e-4,momentum:float=0.9,
+                    gamma = 0.5,mode = "rmsprop") -> torch.optim.Optimizer:
     # construct an optimizer
     # params = [p for p in self.network.parameters() if p.requires_grad]
     params = []
     for key, value in dict(model.named_parameters()).items():
         if value.requires_grad:
             if 'backbone' in key:
-                params += [{'params': [value], 'lr': base_lr * 0.1, 'weight_decay': weight_decay*0.1}]
+                params += [{'params': [value], 'lr': base_lr * gamma, 'weight_decay': weight_decay*gamma}]
             else:
                 params += [{'params': [value], 'lr': base_lr, 'weight_decay': weight_decay}]
-    # optimizer = torch.optim.SGD(params, lr=base_lr, momentum=momentum, weight_decay=weight_decay)
-    optimizer = torch.optim.RMSprop(params,base_lr,momentum=momentum, weight_decay=weight_decay)
-    # optimizer = torch.optim.AdamW(params, base_lr, weight_decay=weight_decay)
+
+    if mode.lower()=="sgd":
+        optimizer = torch.optim.SGD(params, base_lr, momentum=momentum)
+    elif mode.lower()=="rmsprop":
+        optimizer = torch.optim.RMSprop(params, base_lr, momentum=momentum)
+    elif mode.lower()=="adam":
+        optimizer = torch.optim.Adam(params,base_lr,weight_decay=weight_decay)
+    elif mode.lower()=="adamw":
+        optimizer = torch.optim.AdamW(params, base_lr, weight_decay=weight_decay)
+    else:
+        raise("mode must in [sgd,rmsprop,adam,adamw]")
 
     return optimizer
 
