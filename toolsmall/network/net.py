@@ -15,6 +15,25 @@ except:
 
 __all__=["Backbone","ResnetFpn","RPNHead","TwoMLPHead","FastRCNNPredictor"]
 
+# 不要在head（末端） 使用
+def _initialize_weights(self,modules,nonlinearity="relu"):
+    # nonlinearity="leaky_relu"，"relu"
+    # for m in self.modules():
+    for m in modules:
+        if isinstance(m, (nn.Conv2d,nn.ConvTranspose2d)):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity=nonlinearity)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+                # nn.init.constant_(m.bias, 0)
+
+# 推荐使用
 def _initParmas(self,modules):
     # for m in self.children():
     #     if isinstance(m, nn.Conv2d):
@@ -26,33 +45,34 @@ def _initParmas(self,modules):
         if isinstance(m, (nn.Conv2d,nn.ConvTranspose2d)):
             nn.init.normal_(m.weight, std=0.01)
             # nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            # if m.bias is not None:
-            #     nn.init.zeros_(m.bias)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
         elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, 0, 0.01)
-            # if m.bias is not None:
+            if m.bias is not None:
                 # nn.init.zeros_(m.bias)
-                # nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.bias, 0)
 
+# 不要在head（末端） 使用
 def _initParmasV2(self,modules):
 
     for m in modules:
         if isinstance(m, (nn.Conv2d,nn.ConvTranspose2d)):
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             m.weight.data.normal_(0, math.sqrt(2. / n))
-            # if m.bias is not None:
-            #     nn.init.zeros_(m.bias)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
         elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Linear):
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             m.weight.data.normal_(0, math.sqrt(2. / n))
-            # if m.bias is not None:
-                # nn.init.zeros_(m.bias)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
                 # nn.init.constant_(m.bias, 0)
 
 def _initParmas2(self,named_parameters):

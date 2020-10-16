@@ -10,6 +10,7 @@ except:
     from .visual.vis import vis_rect,vis_keypoints2,drawMask
 import torch
 from torch import nn
+from torch.nn import functional as F
 import cv2
 from torchvision.ops import roi_pool,roi_align
 from skimage.transform import resize
@@ -770,18 +771,38 @@ def drawHeatMapV3(hm:torch.tensor,box:torch.tensor,device="cpu"):
     """
     # hm = hm.cpu().numpy()
     x1,y1,x2,y2 = box
-    int_x1 = x1.ceil().int().item()
-    int_y1 = y1.ceil().int().item()
-    int_x2 = x2.floor().int().item()
-    int_y2 = y2.floor().int().item()
+    # int_x1 = x1.ceil().int().item()
+    # int_y1 = y1.ceil().int().item()
+    # int_x2 = x2.floor().int().item()
+    # int_y2 = y2.floor().int().item()
+    # h,w = y2-y1,x2-x1
+    # h,w = h.floor().int().item(),w.floor().int().item()
+    int_x1 = x1.floor().int().item()  # +w//4
+    int_y1 = y1.floor().int().item()  # +h//4
+    int_x2 = x2.ceil().int().item()  # -w//4
+    int_y2 = y2.ceil().int().item()  # -h//4
+
+    # 中心点
+    cx = (x1+x2)/2.
+    cy = (y1+y2)/2.
+    cx, cy = cx.int().item(), cy.int().item()
+
+    fh,fw = hm.shape
     for y,x in product(range(int_y1,int_y2),range(int_x1,int_x2)):
+        if x <= 0 or y <= 0 or x >= fw or y >= fh: continue
         l = x - x1
         t = y - y1
         r = x2 - x
         b = y2 - y
-        # centerness = math.sqrt((min(l, r) / max(l, r)) * (min(t, b) / max(t, b)))
-        centerness = (min(l, r) / max(l, r)) * (min(t, b) / max(t, b))
-        # centerness *= np.exp(centerness-1)
+
+        if l <= 0 or t <= 0 or r <= 0 or b <= 0: continue
+
+        if x==cx and y==cy:
+            centerness=1
+        else:
+            # centerness = math.sqrt((min(l, r) / max(l, r)) * (min(t, b) / max(t, b)))
+            centerness = (min(l, r) / max(l, r)) * (min(t, b) / max(t, b))
+            # centerness *= np.exp(centerness-1)
         hm[y,x] = centerness
 
     return hm
@@ -961,6 +982,179 @@ def _topk3(scores,regBoxes, K=40):
     # topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
 
     return topk_score, regBoxes, topk_clses, topk_ys, topk_xs
+
+
+# -------用于anchor-base模型------------------------------------------------------------
+"""确定正负样本"""
+def positiveAndNegative(ious, logits=None,useall=False,neg_pos_ratio=3,positive_iou=0.4,negative_iou=0.4):
+    """ious=box_iou(priorBox,gt)
+       如果使用单一分支，先验的anchor数量较少，则 positive_iou 可以设置为 0.4,0.5
+       如果使用多级分支，先验的anchor数量较多，则 positive_iou 可以设置为 0.5，0.6,0.7
+    """
+    # 每个anchor与gt对应的iou
+    per_anchor_to_gt, per_anchor_to_gt_index = ious.max(1)
+    # 与gt对应的最大IOU的anchor
+    per_gt_to_anchor, per_gt_to_anchor_index = ious.max(0)
+
+    # 每个anchor对应的gt
+    gt_indexs = per_anchor_to_gt_index
+
+    indexs = torch.ones_like(per_anchor_to_gt) * (-1)
+
+    # indexs[per_anchor_to_gt >= 0.5] = 1  # 正样本
+    # indexs[torch.bitwise_and(per_anchor_to_gt < 0.5,per_anchor_to_gt > 0.1)] = 0  # 负样本
+    # indexs[per_anchor_to_gt < 0.5] = 0  # 负样本
+
+    indexs[per_anchor_to_gt >= positive_iou] = 1  # 正样本
+    indexs[per_anchor_to_gt < negative_iou] = 0  # 负样本
+
+    iou_weight = per_anchor_to_gt
+
+    # 与gt对应的最大IOU的anchor 也是正样本
+    for i, idx in enumerate(per_gt_to_anchor_index):
+        indexs[idx] = 1
+        gt_indexs[idx] = i
+        iou_weight[idx] = 1 #per_gt_to_anchor[i] if per_gt_to_anchor[i] >= 0.5 else 0.5
+
+    if useall:
+        return indexs, gt_indexs,iou_weight
+
+    # -1 忽略
+    # nums_positive = (indexs == 1).sum()
+    # nums_negative = (indexs == 0).sum()
+    idx_positive = torch.nonzero(indexs == 1).squeeze(-1)
+    idx_negative = torch.nonzero(indexs == 0).squeeze(-1)
+    nums_positive = len(idx_positive)
+    nums_negative = len(idx_negative)
+
+    new_negative = neg_pos_ratio * nums_positive  # 正负样本固定为1:3
+
+    if logits is None:  # 随机选
+        negindex = list(range(nums_negative))
+        random.shuffle(negindex)
+        indexs[idx_negative[negindex[new_negative:]]] = -1
+
+    else:  # 根据负样本的loss 选 从大到小选
+        with torch.no_grad():
+            loss = -F.log_softmax(logits[idx_negative], dim=1)[:, 0]  # 对应 softmax
+            # loss = -F.logsigmoid(logits[idx_negative]) # 对应sigmoid
+        # 从大到小排序
+        negindex = loss.sort(descending=True)[1]
+        indexs[idx_negative[negindex[new_negative:]]] = -1
+
+    return indexs, gt_indexs,iou_weight
+
+
+def propose_boxes_rpn(logits,bbox_reg,anchors,fw, fh,targets,training=True,device="cpu",
+                  conf_thres=0.05,nms_thres=0.7,top_N_propose=2000):
+    # 区域建议框
+    logits_pro = logits.detach()
+    bbox_reg_pro = bbox_reg.detach()
+    anchors_xywh = x1y1x2y22xywh(anchors / torch.tensor([fw, fh, fw, fh], device=device))
+    x = bbox_reg_pro[:, 0] * anchors_xywh[:, 2] + anchors_xywh[:, 0]
+    y = bbox_reg_pro[:, 1] * anchors_xywh[:, 3] + anchors_xywh[:, 1]
+    w = torch.exp(bbox_reg_pro[:, 2]) * anchors_xywh[:, 2]
+    h = torch.exp(bbox_reg_pro[:, 3]) * anchors_xywh[:, 3]
+    # 缩放到原图大小
+    input_h, input_w, scale = targets[0]["resize"]
+    propose = torch.stack((x, y, w, h), -1) * torch.tensor([input_w, input_h, input_w, input_h], device=device)
+    # to x1y1x2y2
+    propose = xywh2x1y1x2y2(propose)
+    # clip to img
+    propose[:, [0, 2]] = propose[:, [0, 2]].clamp(0, input_w)
+    propose[:, [1, 3]] = propose[:, [1, 3]].clamp(0, input_h)
+
+    if training:
+        # nms
+        # """
+        # 分数的阈值过滤
+        keep = logits_pro >= conf_thres
+        propose = propose[keep]
+        logits_pro = logits_pro[keep]
+        # """
+        keep = nms(propose, logits_pro, torch.ones_like(logits_pro), nms_thres)
+        propose = propose[keep]
+        logits_pro = logits_pro[keep]
+
+        # 取前2000个
+        propose = propose[:top_N_propose]
+        logits_pro = logits_pro[:top_N_propose]
+
+        return propose,logits_pro
+
+    else:
+        # 如果只使用rpn做预测
+        # nms
+        # 分数的阈值
+        keep = logits_pro >= conf_thres # 0.5
+        propose = propose[keep]
+        logits_pro = logits_pro[keep]
+        keep = nms(propose, logits_pro, torch.ones_like(logits_pro), nms_thres) # 0.3
+        propose = propose[keep]
+        logits_pro = logits_pro[keep]
+
+        # 取前300个
+        propose = propose[:top_N_propose]
+        logits_pro = logits_pro[:top_N_propose]
+        return propose / scale, logits_pro
+
+def propose_boxes_rcnn(cls_deltas, bbox_deltas, propose, targets, training=True,device="cpu", thred_cls=0.3, thred_nms=0.4,
+                  top_N_propose=64):
+    if not training:
+        cls_deltas = torch.softmax(cls_deltas, -1)
+        # cls_deltas = torch.sigmoid(cls_deltas) # 如果使用sigmoid_focal_loss_jit
+        scores, labels = cls_deltas.max(1)
+        keep = torch.bitwise_and(scores >= thred_cls, labels > 0)
+        scores = scores[keep]
+        labels = labels[keep]
+        bbox_reg_pro = bbox_deltas[keep, labels]
+        propose = propose[keep]
+    else:
+        propose, indexs, gt_indexs = propose
+        keep = indexs > 0
+        labels = (targets[0]["labels"][gt_indexs] * indexs).long()[keep]
+        gt_indexs = gt_indexs[keep]
+        propose = propose[keep]
+        scores = torch.softmax(cls_deltas, -1)[keep, labels]
+        bbox_reg_pro = bbox_deltas[keep, labels]
+
+    input_h, input_w, scale = targets[0]["resize"]
+    tmp = torch.tensor([input_w, input_h, input_w, input_h], device=device)
+    anchors_xywh = x1y1x2y22xywh(propose / tmp)
+    x = bbox_reg_pro[:, 0] * anchors_xywh[:, 2] + anchors_xywh[:, 0]
+    y = bbox_reg_pro[:, 1] * anchors_xywh[:, 3] + anchors_xywh[:, 1]
+    w = torch.exp(bbox_reg_pro[:, 2]) * anchors_xywh[:, 2]
+    h = torch.exp(bbox_reg_pro[:, 3]) * anchors_xywh[:, 3]
+    propose = torch.stack((x, y, w, h), -1) * torch.tensor([input_w, input_h, input_w, input_h],
+                                                           device=device)
+    # to x1y1x2y2
+    propose = xywh2x1y1x2y2(propose)
+    # clip to img
+    propose[:, [0, 2]] = propose[:, [0, 2]].clamp(0, input_w)
+    propose[:, [1, 3]] = propose[:, [1, 3]].clamp(0, input_h)
+
+    keep = nms(propose, scores, labels, thred_nms)
+    # propose = (propose[keep]/scale).int() # 缩放到原始输入图像上
+    propose = propose[keep]  # /scale # 缩放到原始输入图像上
+    scores = scores[keep]
+    labels = labels[keep]
+    if training:
+        gt_indexs = gt_indexs[keep]
+        propose = propose[:top_N_propose]
+        scores = scores[:top_N_propose]
+        labels = labels[:top_N_propose]
+        gt_indexs = gt_indexs[:top_N_propose]
+
+    keep = torch.bitwise_and((propose[:, 2] - propose[:, 0]) > 1, (propose[:, 3] - propose[:, 1]) > 1)
+    propose = propose[keep]
+    scores = scores[keep]
+    labels = labels[keep]
+    if training: gt_indexs = gt_indexs[keep]
+
+    if training:
+        return {"boxes": propose, "gt_indexs": gt_indexs}
+
+    return [{"boxes": propose, "scores": scores, "labels": labels}]
 
 
 if __name__ == "__main__":

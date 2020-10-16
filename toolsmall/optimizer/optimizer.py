@@ -14,6 +14,7 @@ RAdam  (推荐)
 import numpy as np
 import math
 import torch
+from torch import nn
 from torch.optim.optimizer import Optimizer, required
 from typing import Any, Callable, Dict, Iterable, List, Set, Type, Union
 from enum import Enum
@@ -697,10 +698,69 @@ def build_optimzer_ultralytics(model,hyp={},useAdam=False):
     for k, v in dict(model.named_parameters()).items():
         if '.bias' in k:
             pg2 += [v]  # biases
-        elif 'Conv2d.weight' in k:
+        # elif 'Conv2d.weight' in k:
+        elif '.weight' in k:
             pg1 += [v]  # apply weight_decay
         else:
             pg0 += [v]  # all else
+
+    # if useAdam:
+    #     # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)
+    #     optimizer = torch.optim.Adam(pg0, lr=hyp['lr0'])
+    #     # optimizer = AdaBound(pg0, lr=hyp['lr0'], final_lr=0.1)
+    # else:
+    #     optimizer = torch.optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
+    # optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
+    # optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
+
+    if useAdam:
+        # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)
+        optimizer = torch.optim.Adam(pg1, lr=hyp['lr0'],weight_decay=hyp['weight_decay'])
+        # optimizer = AdaBound(pg0, lr=hyp['lr0'], final_lr=0.1)
+    else:
+        optimizer = torch.optim.SGD(pg1, lr=hyp['lr0'],weight_decay=hyp['weight_decay'], momentum=hyp['momentum'], nesterov=True)
+    if len(pg0)>0:optimizer.add_param_group({'params': pg0})  # add pg0 with weight_decay
+    if len(pg2)>0:optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
+
+
+    print('Optimizer groups: %g .bias, %g Conv2d.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
+    del pg0, pg1, pg2
+
+    return optimizer
+
+
+def build_optimzer_ultralyticsV2(model,hyp={},useAdam=False):
+    # Optimizer
+    pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
+
+    for m in model.modules():
+        if isinstance(m, (nn.Conv2d,nn.ConvTranspose2d,nn.Linear)):
+            for k, v in dict(m.named_parameters()).items():
+                if v.requires_grad:
+                    if 'bias' in k:
+                        pg2 += [v]  # biases
+                    elif 'weight' in k:
+                        pg1 += [v]  # apply weight_decay
+                    else:
+                        pg0 += [v]  # all else
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            for k, v in dict(m.named_parameters()).items():
+                if v.requires_grad:
+                    if 'bias' in k:
+                        pg2 += [v]  # biases
+                    else:
+                        pg0 += [v]  # all else
+        else:
+            # pg0 += [v]  # all else
+            pass
+
+    # for k, v in dict(model.named_parameters()).items():
+    #     if '.bias' in k:
+    #         pg2 += [v]  # biases
+    #     elif 'Conv2d.weight' in k:
+    #         pg1 += [v]  # apply weight_decay
+    #     else:
+    #         pg0 += [v]  # all else
 
     if useAdam:
         # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)

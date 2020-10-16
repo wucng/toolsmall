@@ -230,6 +230,33 @@ def getAnchorsV2(fmap=[14,14],stride=16,baseSize=600,scales=[128,256,512],ratios
     return anchor,keep
 
 
+def getAnchorsV2_s(resize=[320,320],stride=16,scales=[128,256,512],ratios=[0.5,1,2]):
+    """缩放到到 0~1
+        不删除掉越界的 anchors
+    """
+    baseSize = resize[0]
+    fmap = [re//stride for re in resize]
+    # base_size = 16
+    # x1y1x2y2_00 = generate_anchors(base_size*baseSize/600,ratios,np.array(scales,np.float32)/base_size)/stride
+    x1y1x2y2_00 = generate_anchorsV2([i*baseSize/600 for i in scales],ratios)/stride
+
+    X,Y=np.meshgrid(np.arange(0,fmap[1]),np.arange(0,fmap[0]))
+    x1y1x2y2=np.concatenate((X[..., None], Y[..., None],X[..., None], Y[..., None]), -1).astype(np.float32)
+    anchor = (x1y1x2y2[:,:,None,:]+x1y1x2y2_00[None,None,...]).reshape(-1,4)
+    # 缩减到 0~1
+    anchor /= np.array((fmap[1],fmap[0],fmap[1],fmap[0]),dtype=np.float32)[None,...]
+
+    # clip
+    anchor = np.clip(anchor,0,1)
+
+    # 剔除掉越界的
+    # keep = np.stack((anchor[:,0]>0,anchor[:,1]>0,anchor[:,2]<fmap[1],anchor[:,3]<fmap[0]),-1)
+    # keep = np.sum(keep,1)==4
+    # anchor = anchor[keep]
+    # """
+    return anchor#,keep
+
+
 def getAnchorsV3(fmap=[14,14],stride=16,anchors_wh:np.array=None):
     """对应到 convolutional feature map
         并删除掉越界的 anchors

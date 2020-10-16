@@ -4,7 +4,9 @@ from torch import nn
 from torch.utils.data import DataLoader,Dataset
 import torch.utils.data
 
-from toolsmall.data import bboxAug,PennFudanDataset,PascalVOCDataset,ValidDataset,BalloonDataset,FruitsNutsDataset
+from toolsmall.data import bboxAug,PennFudanDataset,PascalVOCDataset,ValidDataset,BalloonDataset,FruitsNutsDataset,\
+    CarDataset,MSCOCOKeypointDatasetV3
+from toolsmall.data.datasets2 import WIDERFACEDataset,FDDBDataset
 
 def collate_fn(batch_data):
     data_list = []
@@ -29,10 +31,10 @@ def get_transform(train=True,min_size=800,max_size=1333,useImgaug=True,advanced=
             transforms = bboxAug.Compose([
                 # bboxAug.RandomChoice(),
                 bboxAug.RandomHorizontalFlip(),
-                # bboxAug.RandomBrightness(),
-                # bboxAug.RandomBlur(),
-                # bboxAug.RandomSaturation(),
-                # bboxAug.RandomHue(),
+                bboxAug.RandomBrightness(),
+                bboxAug.RandomBlur(),
+                bboxAug.RandomSaturation(),
+                bboxAug.RandomHue(),
                 # bboxAug.RandomRotate(angle=5),
                 # bboxAug.RandomTranslate(),
                 bboxAug.ResizeMinMax(min_size, max_size),
@@ -49,8 +51,33 @@ def get_transform(train=True,min_size=800,max_size=1333,useImgaug=True,advanced=
         ])
 
     return transforms
+def get_transform_keypoints(train=True,min_size=800,max_size=1333,useImgaug=True,advanced=False):
+    if train:
+        transforms = bboxAug.Compose([
+            bboxAug.RandomHorizontalFlip(),
+            bboxAug.RandomBrightness(),
+            bboxAug.RandomBlur(),
+            bboxAug.RandomSaturation(),
+            bboxAug.RandomHue(),
+            # bboxAug.Pad(), bboxAug.Resize(resize, False),
+            bboxAug.ResizeMinMax(min_size, max_size),
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize()  # tensor --> tensor
+            bboxAug.Normalize(image_std=[0.229, 0.224, 0.225])
+        ])
+    else:
+        transforms = bboxAug.Compose([
+            # bboxAug.Pad(), bboxAug.Resize(resize, False),
+            bboxAug.ResizeMinMax(min_size, max_size),
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize()  # tensor --> tensor
+            bboxAug.Normalize(image_std=[0.229, 0.224, 0.225])
+        ])
 
-class Datas:
+    return transforms
+
+
+class Datas_MinMax:
     def __init__(self,isTrain=False,trainDP=None,testDP=None,predDP=None,
                  typeOfData="PennFudanDataset",classes=[],
                  num_workers=5,min_size=800,max_size=1333,batch_size=2,
@@ -60,10 +87,15 @@ class Datas:
         torch.manual_seed(seed)
         kwargs = {'num_workers': num_workers, 'pin_memory': True} if self.use_cuda else {}
 
-        train_transforms = get_transform(train=True, min_size=min_size,max_size=max_size, useImgaug=useImgaug, advanced=advanced)
-        test_transforms = get_transform(False, min_size=min_size,max_size=max_size)
+        if typeOfData == "keypoints":
+            train_transforms = get_transform_keypoints(train=True, min_size=min_size,max_size=max_size, useImgaug=useImgaug,advanced=advanced)
+            test_transforms = get_transform_keypoints(False, min_size=min_size,max_size=max_size)
+        else:
+            train_transforms = get_transform(train=True, min_size=min_size,max_size=max_size, useImgaug=useImgaug, advanced=advanced)
+            test_transforms = get_transform(False, min_size=min_size,max_size=max_size)
 
         if isTrain:
+            year = 2012
             if typeOfData == "PennFudanDataset":
                 Data = PennFudanDataset
             elif typeOfData == "PascalVOCDataset":
@@ -72,17 +104,43 @@ class Datas:
                 Data = BalloonDataset
             elif typeOfData == "FruitsNutsDataset":
                 Data = FruitsNutsDataset
+            elif typeOfData == "CarDataset":
+                Data = CarDataset
+            elif typeOfData == "FDDBDataset":
+                Data = FDDBDataset
+            elif typeOfData == "WIDERFACEDataset":
+                Data = WIDERFACEDataset
+            elif typeOfData == "keypoints":
+                Data = MSCOCOKeypointDatasetV3
+                year = 2014
             else:
                 Data = None
-            train_dataset = Data(trainDP, 2012, transforms=train_transforms, classes=classes, useMosaic=True)
+
+            if typeOfData == "keypoints":
+                train_dataset = Data(trainDP, year, mode="minival", transforms=train_transforms, classes=classes,useMosaic=False)
+            elif typeOfData in ["FDDBDataset","WIDERFACEDataset"]:
+                train_dataset = Data(trainDP, transforms=train_transforms, classes=classes)
+            else:
+                train_dataset = Data(trainDP, year, transforms=train_transforms, classes=classes, useMosaic=True)
 
             if testDP is not None:
-                test_dataset = Data(testDP, 2012, transforms=test_transforms, classes=classes)
+                if typeOfData == "keypoints":
+                    train_dataset = Data(testDP, year, mode="minival", transforms=test_transforms, classes=classes,useMosaic=False)
+                elif typeOfData in ["FDDBDataset", "WIDERFACEDataset"]:
+                    test_dataset = Data(testDP, transforms=test_transforms, classes=classes)
+                else:
+                    test_dataset = Data(testDP, year, transforms=test_transforms, classes=classes)
 
             else:
-                test_dataset = Data(trainDP, 2012, transforms=test_transforms, classes=classes)
+                if typeOfData == "keypoints":
+                    train_dataset = Data(trainDP, year, mode="minival", transforms=test_transforms, classes=classes,useMosaic=False)
+                elif typeOfData in ["FDDBDataset", "WIDERFACEDataset"]:
+                    test_dataset = Data(trainDP, transforms=test_transforms, classes=classes)
+                else:
+                    test_dataset = Data(trainDP, year, transforms=test_transforms, classes=classes)
+
                 num_datas = len(train_dataset)
-                num_train = int(0.8 * num_datas)
+                num_train = int(0.9 * num_datas)
                 indices = torch.randperm(num_datas).tolist()
                 train_dataset = torch.utils.data.Subset(train_dataset, indices[:num_train])
                 test_dataset = torch.utils.data.Subset(test_dataset, indices[num_train:])
@@ -107,18 +165,3 @@ class Datas:
 
             self.pred_loader = DataLoader(pred_dataset, batch_size=batch_size, shuffle=False,
                                           collate_fn=collate_fn, **kwargs)
-
-
-if __name__=="__main__":
-    # classes = ["__background__","bicycle", "bus", "car", "motorbike", "person"]
-    classes = ["__background__", "aeroplane", "bicycle", "bird", "boat",
-               "bottle", "bus", "car", "cat", "chair", "cow",
-               "diningtable", "dog", "horse", "motorbike",
-               "person", "pottedplant", "sheep", "sofa",
-               "train", "tvmonitor"]
-    preddataPath = None
-    testdataPath = None
-    traindataPath = "/media/wucong/225A6D42D4FA828F1/datas/voc/VOCdevkit/"
-    typeOfData = "PascalVOCDataset"
-
-    data=Datas(True,traindataPath,testdataPath,preddataPath,typeOfData,classes,min_size=600,max_size=1000,batch_size=1)
