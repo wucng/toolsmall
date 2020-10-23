@@ -1,6 +1,11 @@
-from .utils.google_utils import *
-from .utils.layers import *
-from .utils.parse_config import *
+try:
+    from .utils.google_utils import *
+    from .utils.layers import *
+    from .utils.parse_config import *
+except:
+    from utils.google_utils import *
+    from utils.layers import *
+    from utils.parse_config import *
 
 ONNX_EXPORT = False
 
@@ -209,10 +214,10 @@ class YOLOLayer(nn.Module):
 
         else:  # inference
             io = p.clone()  # inference output
-            io[..., :2] = torch.sigmoid(io[..., :2]) + self.grid  # xy
-            io[..., 2:4] = torch.exp(io[..., 2:4]) * self.anchor_wh  # wh yolo method
-            io[..., :4] *= self.stride
-            torch.sigmoid_(io[..., 4:])
+            # io[..., :2] = torch.sigmoid(io[..., :2]) + self.grid  # xy
+            # io[..., 2:4] = torch.exp(io[..., 2:4]) * self.anchor_wh  # wh yolo method
+            # io[..., :4] *= self.stride
+            # torch.sigmoid_(io[..., 4:])
             return io.view(bs, -1, self.no), p  # view [1, 3, 13, 13, 85] as [1, 507, 85]
 
 

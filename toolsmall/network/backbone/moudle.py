@@ -119,6 +119,16 @@ class ChannelAttention(nn.Module):
         out = avg_out + max_out
         return self.sigmoid(out)*x
 
+class SAM(nn.Module): # ChannelAttention 改进版
+    def __init__(self, in_planes):
+        super(SAM, self).__init__()
+        self.conv = nn.Conv2d(in_planes,in_planes,3,1,1)
+
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        out = self.conv(x)
+        return self.sigmoid(out)*x
 
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
