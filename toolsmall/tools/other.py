@@ -1,9 +1,10 @@
-flag=False
-try:
-    from torchvision.ops.boxes import batched_nms as nms
-    flag=True
-except:
-    from .nms.nms import nms2
+# flag=False
+# try:
+#     from torchvision.ops.boxes import batched_nms as nms
+#     flag=True
+# except:
+#     from .nms.nms import nms2
+from .nms.nms import soft_nms,diouNms,nms,diou_softNms
 try:
     from visual.vis import vis_rect,vis_keypoints2,drawMask
 except:
@@ -19,6 +20,76 @@ from itertools import product
 from torchvision.ops import misc as misc_nn_ops
 import matplotlib.pyplot as plt
 import math,random
+
+"""soft nms"""
+def apply_nmsV2(boxes,scores,labels,conf_thres=0.3,
+                nms_thres=0.4,method=1,nums=50,
+                use_diou=True,filter_labels=[],
+                nms_type="diou_softNms"):
+    """
+    Parameters
+    ----------
+    prediction:
+            {"boxes":Tensor[N,4],"labels":Tensor[N,],"scores":Tensor[N,]}
+
+    Returns:
+    -------
+           {"boxes":Tensor[N,4],"labels":Tensor[N,],"scores":Tensor[N,]}
+
+    nms_thres : "nms","soft_nms","diouNms","diou_softNms"
+
+    """
+
+    device = boxes.device
+
+    last_boxes = []
+    last_scores = []
+    last_labels = []
+    unique_labels = labels.unique()
+    for c in unique_labels:
+        if c in filter_labels: continue
+
+        # Get the detections with the particular class
+        temp = labels == c
+        _scores = scores[temp]
+        _labels = labels[temp]
+        _boxes = boxes[temp]
+        if len(_labels) > 1:
+            if nms_type == "nms":
+                keep = nms(_boxes,_scores,nms_thres,nums)
+                last_scores.extend(_scores[keep])
+                last_labels.extend(_labels[keep])
+                last_boxes.extend(_boxes[keep])
+            elif nms_type == "diouNms":
+                keep = diouNms(_boxes, _scores, nms_thres,nums)
+                last_scores.extend(_scores[keep])
+                last_labels.extend(_labels[keep])
+                last_boxes.extend(_boxes[keep])
+            elif nms_type == "soft_nms": # 效果差 速度慢 （未实现）？？？？
+                tpboxes = torch.cat((_boxes, _scores.unsqueeze(-1)), -1).cpu().numpy()
+                keep = soft_nms(tpboxes.copy(),Nt=nms_thres,threshold=conf_thres,method=method)
+                last_scores.extend(_scores[keep])
+                last_labels.extend(_labels[keep])
+                last_boxes.extend(_boxes[keep])
+            else:
+                b,s = diou_softNms(_boxes,_scores,nms_thres,conf_thres,nums,method,use_diou)
+                l = torch.ones_like(s)*c
+                last_scores.extend(s)
+                last_labels.extend(l)
+                last_boxes.extend(b)
+
+        else:
+            last_scores.extend(_scores)
+            last_labels.extend(_labels)
+            last_boxes.extend(_boxes)
+
+    if len(last_boxes)>0:
+        return torch.stack(last_boxes,0).to(device),\
+               torch.stack(last_scores,0).to(device),\
+               torch.stack(last_labels,0).to(device)
+    else:
+        return last_boxes,last_scores,last_labels
+
 
 def apply_nms(prediction,conf_thres=0.3,nms_thres=0.4,filter_labels=[]):
     """
@@ -1151,7 +1222,7 @@ def positiveAndNegative(ious, logits=None,useall=False,neg_pos_ratio=3,positive_
 
     else:  # 根据负样本的loss 选 从大到小选
         with torch.no_grad():
-            loss = -F.log_softmax(logits[idx_negative], dim=1)[:, 0]  # 对应 softmax
+            loss = -F.log_softmax(logits[idx_negative], dim=-1)[..., 0]  # 对应 softmax ,第0列对应背景
             # loss = -F.logsigmoid(logits[idx_negative]) # 对应sigmoid
         # 从大到小排序
         negindex = loss.sort(descending=True)[1]

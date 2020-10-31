@@ -9,6 +9,9 @@ https://blog.csdn.net/qq_39056987/article/details/104327638
 
 yolov4
 https://blog.csdn.net/justsolow/article/details/106401065
+
+https://zhuanlan.zhihu.com/p/172121380
+https://zhuanlan.zhihu.com/p/143747206
 """
 import torch
 from torch import nn
@@ -32,7 +35,7 @@ class Flatten(nn.Module):
     def forward(self, x):
         return torch.flatten(x,1)
 
-def convBNLelu(in_channels=3, out_channels=32,
+def CBL(in_channels=3, out_channels=32,
                kernel_size=3, stride=1, padding=1,
                groups=1, bias=False,negative_slope=0.1):
     return nn.Sequential(OrderedDict([
@@ -42,26 +45,39 @@ def convBNLelu(in_channels=3, out_channels=32,
             ('activation', nn.LeakyReLU(negative_slope, inplace=True))
         ]))
 
+def CBM(in_channels=3, out_channels=32,
+               kernel_size=3, stride=1, padding=1,
+               groups=1, bias=False):
+    return nn.Sequential(OrderedDict([
+            ('Conv2d',nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+                                kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=bias)),
+            ('BatchNorm2d', nn.BatchNorm2d(out_channels, momentum=0.03, eps=1E-4)),
+            # ('activation', nn.LeakyReLU(negative_slope, inplace=True))
+            ('activation', Mish())
+        ]))
 
 class ResidualBlock(nn.Module):
     def __init__(self,in_channels=64, out_channels=32):
         super().__init__()
         self.residual=nn.Sequential(
-        convBNLelu(in_channels,out_channels,1,1,0),
-        convBNLelu(out_channels,in_channels,3,1,1)
+        CBL(in_channels,out_channels,1,1,0),
+        CBL(out_channels,in_channels,3,1,1)
         )
 
     def forward(self,x):
         return x+self.residual(x)
 
-class SPPNetV2(nn.Module):
-    def __init__(self):
+
+class SPPNet(nn.Module):
+    """论文的版本"""
+    def __init__(self,in_channels):
         super().__init__()
         self.spp = nn.Sequential(
             nn.MaxPool2d(1,1,0),
             nn.MaxPool2d(5,1,2),
             nn.MaxPool2d(9,1,4),
-            nn.MaxPool2d(13,1,6)
+            nn.MaxPool2d(13,1,6),
+            CBL(in_channels*4,in_channels,1,1,0)
         )
 
     def forward(self,x):
@@ -70,10 +86,10 @@ class SPPNetV2(nn.Module):
         x3 = self.spp[2](x)
         x4 = self.spp[3](x)
 
-        return x1+x2+x3+x4
+        return self.spp[4:](torch.cat((x1,x2,x3,x4),1))
 
-class SPPNet(nn.Module):
-    """论文的版本"""
+class SPPNetV2(nn.Module):
+
     def __init__(self,useAdd=False):
         super().__init__()
         self.useAdd = useAdd
@@ -100,76 +116,63 @@ class SPPNet(nn.Module):
 class ASPP(nn.Module):
     """https://blog.csdn.net/justsolow/article/details/106401065#t3
     """
-    def __init__(self,in_channels,useAdd=False):
+    def __init__(self,in_channels):
         super().__init__()
-        self.useAdd = useAdd
-        out_channels = in_channels//4
-        assert out_channels*4==in_channels
         self.aspp = nn.Sequential(
-            nn.Conv2d(out_channels,out_channels,3,1,6,6), # 3+2*(6-1)
-            nn.Conv2d(out_channels,out_channels,3,1,12,12),
-            nn.Conv2d(out_channels,out_channels,3,1,18,18),
-            nn.Conv2d(out_channels,out_channels,3,1,24,24)
+            nn.Conv2d(in_channels,in_channels,3,1,6,6), # 3+2*(6-1)
+            nn.Conv2d(in_channels,in_channels,3,1,12,12),
+            nn.Conv2d(in_channels,in_channels,3,1,18,18),
+            nn.Conv2d(in_channels,in_channels,3,1,24,24),
+            CBL(in_channels * 4, in_channels, 1, 1, 0)
         )
 
-    def forward(self,x):
-        bs, c, h, w = x.shape
-        c1 = c // 4
-        x1 = self.aspp[0](x[:, :c1, ...])
-        x2 = self.aspp[1](x[:, c1:c1 * 2, ...])
-        x3 = self.aspp[2](x[:, c1 * 2:c1 * 3, ...])
-        x4 = self.aspp[3](x[:, c1 * 3:, ...])
+    def forward(self, x):
+        x1 = self.aspp[0](x)
+        x2 = self.aspp[1](x)
+        x3 = self.aspp[2](x)
+        x4 = self.aspp[3](x)
 
-        if self.useAdd:
-            return torch.cat((x1, x2, x3, x4), 1) + x
-        else:
-            return torch.cat((x1, x2, x3, x4), 1)
+        return self.aspp[4:](torch.cat((x1, x2, x3, x4), 1))
 
 class RFB(nn.Module):
-    def __init__(self,in_channels,useAdd=False):
+    def __init__(self,in_channels):
         super().__init__()
-        self.useAdd = useAdd
-        out_channels = in_channels // 4
-        assert out_channels * 4 == in_channels
 
         self.rfb = nn.Sequential(
-            nn.Conv2d(out_channels,out_channels,1,1,0),
-            nn.Conv2d(out_channels,out_channels,3,1,1,1),
+            nn.Conv2d(in_channels,in_channels,1,1,0),
+            nn.Conv2d(in_channels,in_channels,3,1,1,1),
 
-            nn.Conv2d(out_channels, out_channels, 3, 1, 1),
-            nn.Conv2d(out_channels, out_channels, 3, 1, 3, 3),
+            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
+            nn.Conv2d(in_channels, in_channels, 3, 1, 3, 3),
 
-            nn.Conv2d(out_channels, out_channels, 5, 1, 2),
-            nn.Conv2d(out_channels, out_channels, 3, 1, 5, 5),
+            nn.Conv2d(in_channels, in_channels, 5, 1, 2),
+            nn.Conv2d(in_channels, in_channels, 3, 1, 5, 5),
+
+            CBL(in_channels * 4, in_channels, 1, 1, 0)
         )
 
     def forward(self,x):
-        bs, c, h, w = x.shape
-        c1 = c // 4
-        x1 = x[:, :c1, ...]
-        x2 = self.rfb[0:2](x[:, c1:c1 * 2, ...])
-        x3 = self.rfb[2:4](x[:, c1 * 2:c1 * 3, ...])
-        x4 = self.rfb[4:](x[:, c1 * 3:, ...])
+        x1 = x
+        x2 = self.rfb[0:2](x)
+        x3 = self.rfb[2:4](x)
+        x4 = self.rfb[4:6](x)
 
-        if self.useAdd:
-            return torch.cat((x1, x2, x3, x4), 1) + x
-        else:
-            return torch.cat((x1, x2, x3, x4), 1)
+        return self.rfb[6:](torch.cat((x1, x2, x3, x4), 1))
 
 
 class Darknet53(nn.Module):
     def __init__(self,num_classes=1000,pretrained=False):
         super().__init__()
         self.model=nn.Sequential(
-            convBNLelu(3,32,3,1,1),
-            convBNLelu(32,64,3,2,1),
+            CBL(3,32,3,1,1),
+            CBL(32,64,3,2,1),
             ResidualBlock(64,32), # id =2
 
-            convBNLelu(64,128,3,2,1),
+            CBL(64,128,3,2,1),
             ResidualBlock(128, 64),
             ResidualBlock(128, 64), # s4 id=5
 
-            convBNLelu(128, 256, 3, 2, 1),
+            CBL(128, 256, 3, 2, 1),
             ResidualBlock(256, 128),
             ResidualBlock(256, 128),
             ResidualBlock(256, 128),
@@ -179,7 +182,7 @@ class Darknet53(nn.Module):
             ResidualBlock(256, 128),
             ResidualBlock(256, 128), # s8 id=14
 
-            convBNLelu(256, 512, 3, 2, 1),
+            CBL(256, 512, 3, 2, 1),
             ResidualBlock(512, 256),
             ResidualBlock(512, 256),
             ResidualBlock(512, 256),
@@ -189,7 +192,7 @@ class Darknet53(nn.Module):
             ResidualBlock(512, 256),
             ResidualBlock(512, 256), # s16 id=23
 
-            convBNLelu(512, 1024, 3, 2, 1),
+            CBL(512, 1024, 3, 2, 1),
             ResidualBlock(1024, 512),
             ResidualBlock(1024, 512),
             ResidualBlock(1024, 512),
@@ -257,39 +260,39 @@ class YoloV3Net(nn.Module):
         self.backbone = Backbone_D53(model_name,pretrained,freeze_at)
 
         self.s32=nn.Sequential(
-            convBNLelu(1024,512,1,1,0),
-            convBNLelu(512,1024,3,1,1),
-            convBNLelu(1024, 512, 1, 1, 0),
-            convBNLelu(512, 1024, 3, 1, 1),
-            convBNLelu(1024, 512, 1, 1, 0), # 4
-            convBNLelu(512, 1024, 3, 1, 1),
-            convBNLelu(1024, out_filler, 1, 1, 0),
+            CBL(1024,512,1,1,0),
+            CBL(512,1024,3,1,1),
+            CBL(1024, 512, 1, 1, 0),
+            CBL(512, 1024, 3, 1, 1),
+            CBL(1024, 512, 1, 1, 0), # 4
+            CBL(512, 1024, 3, 1, 1),
+            CBL(1024, out_filler, 1, 1, 0),
         )
 
         self.s16=nn.Sequential(
-            convBNLelu(512, 256, 1, 1, 0),
+            CBL(512, 256, 1, 1, 0),
             nn.Upsample(scale_factor=2),
 
-            convBNLelu(768, 256, 1, 1, 0),
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, 256, 1, 1, 0),
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, 256, 1, 1, 0), # 6
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, out_filler, 1, 1, 0),
+            CBL(768, 256, 1, 1, 0),
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, 256, 1, 1, 0),
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, 256, 1, 1, 0), # 6
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, out_filler, 1, 1, 0),
         )
 
         self.s8 = nn.Sequential(
-            convBNLelu(256, 128, 1, 1, 0),
+            CBL(256, 128, 1, 1, 0),
             nn.Upsample(scale_factor=2),
 
-            convBNLelu(384, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, out_filler, 1, 1, 0),
+            CBL(384, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, out_filler, 1, 1, 0),
         )
 
 
@@ -335,39 +338,39 @@ class YoloV3Net_spp(nn.Module):
                 # self.spp[s]=SPPNetV2()
 
         self.s32=nn.Sequential(
-            convBNLelu(1024,512,1,1,0),
-            convBNLelu(512,1024,3,1,1),
-            convBNLelu(1024, 512, 1, 1, 0),
-            convBNLelu(512, 1024, 3, 1, 1),
-            convBNLelu(1024, 512, 1, 1, 0), # 4
-            convBNLelu(512, 1024, 3, 1, 1),
-            convBNLelu(1024, out_filler, 1, 1, 0),
+            CBL(1024,512,1,1,0),
+            CBL(512,1024,3,1,1),
+            CBL(1024, 512, 1, 1, 0),
+            CBL(512, 1024, 3, 1, 1),
+            CBL(1024, 512, 1, 1, 0), # 4
+            CBL(512, 1024, 3, 1, 1),
+            CBL(1024, out_filler, 1, 1, 0),
         )
 
         self.s16=nn.Sequential(
-            convBNLelu(512, 256, 1, 1, 0),
+            CBL(512, 256, 1, 1, 0),
             nn.Upsample(scale_factor=2),
 
-            convBNLelu(768, 256, 1, 1, 0),
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, 256, 1, 1, 0),
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, 256, 1, 1, 0), # 6
-            convBNLelu(256, 512, 3, 1, 1),
-            convBNLelu(512, out_filler, 1, 1, 0),
+            CBL(768, 256, 1, 1, 0),
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, 256, 1, 1, 0),
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, 256, 1, 1, 0), # 6
+            CBL(256, 512, 3, 1, 1),
+            CBL(512, out_filler, 1, 1, 0),
         )
 
         self.s8 = nn.Sequential(
-            convBNLelu(256, 128, 1, 1, 0),
+            CBL(256, 128, 1, 1, 0),
             nn.Upsample(scale_factor=2),
 
-            convBNLelu(384, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, 128, 1, 1, 0),
-            convBNLelu(128, 256, 3, 1, 1),
-            convBNLelu(256, out_filler, 1, 1, 0),
+            CBL(384, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, 128, 1, 1, 0),
+            CBL(128, 256, 3, 1, 1),
+            CBL(256, out_filler, 1, 1, 0),
         )
 
 
@@ -406,8 +409,8 @@ class YoloV3Net_spp(nn.Module):
         return x8,x16,x32
 
 if __name__=="__main__":
-    # m = Darknet53()
-    # print(m)
+    m = Darknet53()
+    print(m)
     # print(m.state_dict().keys())
     # pred = m(torch.rand([1,3,256,256]))
     # print(pred.shape)
@@ -416,7 +419,7 @@ if __name__=="__main__":
     # print(state_dict["model"].keys())
 
     # m = Backbone_D53()
-    m = ASPP(1024)
+    m = RFB(512)
     print(m)
-    pred = m(torch.rand([1, 1024, 13, 13]))
+    pred = m(torch.rand([1, 512, 13, 13]))
     print()

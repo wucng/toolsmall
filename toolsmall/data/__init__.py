@@ -2,7 +2,7 @@ from .datasets import (PascalVOCDataset,PennFudanDataset,ValidDataset,glob_forma
                        BalloonDataset,FruitsNutsDataset,CarDataset)
 from .datasets2 import FDDBDataset,WIDERFACEDataset
 from .datasets3 import MSCOCODataset
-from .augment import bboxAug
+from .augment import bboxAug,bboxAugv2
 from .msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDataset2,MSCOCOKeypointDatasetV2,MSCOCOKeypointDatasetV3
 from .data_maxmin import Datas_MinMax
 from .data_resize import Datas_Resize

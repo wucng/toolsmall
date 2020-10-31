@@ -23,6 +23,8 @@ import pandas as pd
 
 from .augment.uils import glob_format,resize_boxes,random_affine,mosaic_resize,mosaic_crop,mosaic_origin,mixup
 
+from .augment.bboxAugv2 import mosaicFourImg,mosaicTwoImg,mosaicOneImg
+
 __all__=["glob_format","PennFudanDataset","PascalVOCDataset","PascalVOCDataset","ValidDataset"]
 
 class PennFudanDataset(object):
@@ -364,6 +366,8 @@ class PascalVOCDataset(Dataset):
             elif state == "ricap":
                 # img,mask,boxes, labels,img_path = mosaic_origin(self,idx)
                 img,mask,boxes, labels,img_path = mosaic_crop(self,idx)
+                # img,mask,boxes, labels,img_path = mosaicTwoImg(self,idx)
+                # img,mask,boxes, labels,img_path = mosaicOneImg(self,idx)
                 # img,mask,boxes, labels,img_path = mosaic_resize(self,idx)
             else:
                 # img,mask,boxes, labels,img_path = mixup(self,idx)

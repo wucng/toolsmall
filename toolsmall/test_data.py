@@ -1,7 +1,7 @@
 from data.datasets import PennFudanDataset,PascalVOCDataset,BalloonDataset,FruitsNutsDataset,CarDataset
 from data.msCOCODatas import MSCOCOKeypointDataset,MSCOCOKeypointDatasetV2,MSCOCOKeypointDatasetV3
 from data import FDDBDataset,WIDERFACEDataset
-from data.augment import bboxAug
+from data.augment import bboxAug,bboxAugv2
 from tools.visual.vis import vis_rect,vis_keypoints,vis_keypoints2,drawMask
 
 import numpy as np
@@ -21,6 +21,66 @@ def collate_fn(batch_data):
         target_list.append(target)
 
     return data_list,target_list
+
+def get_transforms(mode,advanced=False):
+    if mode==0: # 推荐
+        return bboxAug.Compose([
+            bboxAug.Augment(advanced),
+            bboxAugv2.ResizeFixMinAndRandomCrop(448,(416,416)), # 用于resize到固定大小
+            # bboxAugv2.RandomDropAndResizeMaxMin(0.2,600,1000), # 用于 fasterrecnn
+
+            bboxAugv2.RandomRotate(),
+            bboxAugv2.RandomAffine(),
+
+            bboxAugv2.RandomDropPixelV2(),
+            # # bboxAugv2.RandomCutMixV2(),
+            bboxAugv2.RandomMosaic(),
+            # random.choice([bboxAugv2.RandomCutMixV2(),bboxAugv2.RandomMosaic()]),
+
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
+    elif mode == 1:# 推荐
+        return bboxAug.Compose([
+            bboxAugv2.RandomHorizontalFlip(),
+            bboxAugv2.ResizeFixMinAndRandomCrop(448,(416,416)), # 用于resize到固定大小
+            # bboxAugv2.RandomDropAndResizeMaxMin(0.2,600,1000), # 用于 fasterrecnn
+            bboxAugv2.RandomLight(),
+            bboxAugv2.RandomColor(),
+            bboxAugv2.RandomChanels(),
+            bboxAugv2.RandomNoise(),
+            bboxAugv2.RandomBlur(),
+            bboxAugv2.RandomRotate(),
+            bboxAugv2.RandomAffine(),
+
+            bboxAugv2.RandomDropPixelV2(),
+            # bboxAugv2.RandomCutMixV2(),
+            bboxAugv2.RandomMosaic(),
+            # random.choice([bboxAugv2.RandomCutMixV2(),bboxAugv2.RandomMosaic()]),
+
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
+    elif mode == 2:# 不推荐
+        return bboxAug.Compose([
+            # bboxAug.RandomChoice(),
+            bboxAug.RandomHorizontalFlip(),
+            bboxAug.RandomBrightness(),
+            bboxAug.RandomBlur(),
+            bboxAug.RandomSaturation(),
+            bboxAug.RandomHue(),
+            bboxAug.RandomRotate(angle=5),
+            # bboxAug.RandomTranslate(), # 有问题
+            # bboxAug.Augment(False),
+            bboxAug.Pad(),
+            bboxAug.Resize((416,416), False),
+            # bboxAug.ResizeMinMax(600,1000),
+            # bboxAug.ResizeFixAndPad(),
+            # bboxAug.RandomHSV(),
+            bboxAug.RandomCutout(),
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
 
 
 def test_datasets():
@@ -42,9 +102,9 @@ def test_datasets():
 
     # """
 
-    root = r"/media/wucong/225A6D42D4FA828F1/datas/car_data"
-    classes = ["car"]
-    typeOfData = "CarDataset"
+    # root = r"/media/wucong/225A6D42D4FA828F1/datas/car_data"
+    # classes = ["car"]
+    # typeOfData = "CarDataset"
 
     # """
     # root = r"/media/wucong/225A6D42D4FA828F1/datas/PennFudanPed"
@@ -59,7 +119,7 @@ def test_datasets():
     # root = r"/media/wucong/225A6D42D4FA828F1/datas/data"
     # classes = ["date","fig","hazelnut"]
     # typeOfData = "FruitsNutsDataset"
-    """
+    # """
     root = "/media/wucong/225A6D42D4FA828F1/datas/voc/VOCdevkit/"
     classes = ["aeroplane", "bicycle", "bird", "boat",
                "bottle", "bus", "car", "cat", "chair", "cow",
@@ -75,25 +135,7 @@ def test_datasets():
     torch.manual_seed(seed)
     kwargs = {'num_workers': 5, 'pin_memory': True} if use_cuda else {}
 
-    train_transforms = bboxAug.Compose([
-               # bboxAug.RandomChoice(),
-               bboxAug.RandomHorizontalFlip(),
-               bboxAug.RandomBrightness(),
-               bboxAug.RandomBlur(),
-               bboxAug.RandomSaturation(),
-               bboxAug.RandomHue(),
-               # bboxAug.RandomRotate(angle=5),
-               # bboxAug.RandomTranslate(), # 有问题
-               # bboxAug.Augment(False),
-               # bboxAug.Pad(),
-               # bboxAug.Resize((416,416), False),
-               bboxAug.ResizeMinMax(600,1000),
-               # bboxAug.ResizeFixAndPad(),
-               # bboxAug.RandomHSV(),
-               # bboxAug.RandomCutout(),
-               bboxAug.ToTensor(), # PIL --> tensor
-               # bboxAug.Normalize() # tensor --> tensor
-           ])
+    train_transforms = get_transforms(0)
 
     if typeOfData == "PennFudanDataset":
         Data = PennFudanDataset
@@ -108,7 +150,7 @@ def test_datasets():
     else:
         Data = None
 
-    dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=True)
+    dataset = Data(root, 2012, transforms=train_transforms, classes=classes, useMosaic=False)
 
     # dataset = FDDBDataset(root, transforms=train_transforms, classes=classes)
     # dataset = WIDERFACEDataset(root, transforms=train_transforms, classes=classes)

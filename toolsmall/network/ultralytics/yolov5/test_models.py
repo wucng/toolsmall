@@ -1,4 +1,7 @@
-from .models.yolo import Model
+try:
+    from .models.yolo import Model
+except:
+    from models.yolo import Model
 import torch
 
 if __name__=="__main__":
@@ -10,6 +13,7 @@ if __name__=="__main__":
     x = torch.rand([1,3,416,416]).to(device)
     # model.train()
     # pred = model(x)
+    # exit(0)
     """
     :pred  list[Tensor[1,3,52,52,85], # stride=8
                 Tensor[1,3,26,26,85], # stride=16
@@ -21,5 +25,13 @@ if __name__=="__main__":
     pred = model(x,augment=False)[0]
     """
     :pred Tensor[1,10647,85]
+    """
+
+    """
+    pred = model(x, augment=False)[1]
+    :pred  list[Tensor[1,3,52,52,85], # stride=8
+                Tensor[1,3,26,26,85], # stride=16
+                Tensor[1,3,13,13,85]  # stride=32
+                ]
     """
     print()

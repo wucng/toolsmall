@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader,Dataset
 import torch.utils.data
 
 from toolsmall.data import bboxAug,PennFudanDataset,PascalVOCDataset,ValidDataset,BalloonDataset,FruitsNutsDataset,\
-    CarDataset,MSCOCOKeypointDatasetV3
+    CarDataset,MSCOCOKeypointDatasetV3,bboxAugv2
 from toolsmall.data.datasets2 import WIDERFACEDataset,FDDBDataset
 
 def collate_fn(batch_data):
@@ -28,6 +28,27 @@ def get_transform(train=True,min_size=800,max_size=1333,useImgaug=True,advanced=
                 bboxAug.Normalize(image_std=[0.229, 0.224, 0.225])
             ])
         else:
+
+            transforms = bboxAug.Compose([
+                bboxAugv2.RandomHorizontalFlip(),
+                # bboxAugv2.ResizeFixMinAndRandomCrop(448,(416,416)), # 用于resize到固定大小
+                bboxAugv2.RandomDropAndResizeMaxMin(0.2, min_size, max_size),  # 用于 fasterrecnn
+                bboxAugv2.RandomLight(),
+                bboxAugv2.RandomColor(),
+                bboxAugv2.RandomChanels(),
+                bboxAugv2.RandomNoise(),
+                bboxAugv2.RandomBlur(),
+                bboxAugv2.RandomRotate(),
+                bboxAugv2.RandomAffine(),
+
+                bboxAugv2.RandomDropPixelV2(),
+                bboxAugv2.RandomCutMixV2(),
+                bboxAugv2.RandomMosaic(),
+                bboxAug.ToTensor(),  # PIL --> tensor
+                # bboxAug.Normalize()  # tensor --> tensor
+                bboxAug.Normalize(image_std=[0.229, 0.224, 0.225])
+            ])
+            """
             transforms = bboxAug.Compose([
                 # bboxAug.RandomChoice(),
                 bboxAug.RandomHorizontalFlip(),
@@ -42,6 +63,7 @@ def get_transform(train=True,min_size=800,max_size=1333,useImgaug=True,advanced=
                 # bboxAug.Normalize()  # tensor --> tensor
                 bboxAug.Normalize(image_std=[0.229, 0.224, 0.225])
             ])
+            """
     else:
         transforms = bboxAug.Compose([
             bboxAug.ResizeMinMax(min_size, max_size),
