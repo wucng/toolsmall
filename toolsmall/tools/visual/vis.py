@@ -88,8 +88,15 @@ def vis_class(img, pos, class_str="person", font_scale=0.35,label=1,colors=[]):
     cv2.rectangle(img,(pos[0],pos[1]),(pos[2],pos[3]),color,2) # _GREEN
     return img
 
-def vis_mask(img, mask, col, alpha=0.4, show_border=True, border_thick=1):
+def vis_mask(img, mask, col, alpha=0.4, show_border=True, border_thick=1,smoothing=False):
     """Visualizes a single binary mask."""
+    if mask.dtype.name != 'uint8':
+        # mask = mask.astype(np.ubyte) # 不推荐这种（如果mask 取值在0.~1.）
+        mask = np.clip(mask*256,0,255).astype(np.ubyte)
+    if smoothing: # mask 边缘平滑
+        # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, (7, 7))
+        mask = cv2.medianBlur(mask,7) # 中值滤波做边缘平滑（推荐）
+
     img = img.astype(np.float32)
     idx = np.nonzero(mask)
     # print(mask.max())
@@ -113,7 +120,8 @@ def drawMask(img,mask, label=1,colors=[],alpha=0.4):
     # mask
     # color_mask = [255, 184,99]  # BGR
     color_mask = np.asarray(color, np.uint8).reshape([1, 3])
-    img = vis_mask(img, mask.astype(np.uint8), color_mask, alpha, True)  # True
+
+    img = vis_mask(img,mask,color_mask, alpha, True,smoothing=True)  # True
 
     return img
 

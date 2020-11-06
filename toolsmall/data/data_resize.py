@@ -98,6 +98,66 @@ def get_transform_keypoints(train=True,resize=(224,224),useImgaug=True,advanced=
     return transforms
 
 
+def get_transforms(mode,advanced=False):
+    if mode==0: # 推荐
+        return bboxAug.Compose([
+            bboxAug.Augment(advanced),
+            bboxAugv2.ResizeFixMinAndRandomCrop(448,(416,416)), # 用于resize到固定大小
+            # bboxAugv2.RandomDropAndResizeMaxMin(0.2,600,1000), # 用于 fasterrecnn
+
+            bboxAugv2.RandomRotate(),
+            bboxAugv2.RandomAffine(),
+
+            bboxAugv2.RandomDropPixelV2(),
+            # # bboxAugv2.RandomCutMixV2(),
+            bboxAugv2.RandomMosaic(),
+            # random.choice([bboxAugv2.RandomCutMixV2(),bboxAugv2.RandomMosaic()]),
+
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
+    elif mode == 1:# 推荐
+        return bboxAug.Compose([
+            bboxAugv2.RandomHorizontalFlip(),
+            bboxAugv2.ResizeFixMinAndRandomCrop(448,(416,416)), # 用于resize到固定大小
+            # bboxAugv2.RandomDropAndResizeMaxMin(0.2,600,1000), # 用于 fasterrecnn
+            bboxAugv2.RandomLight(),
+            bboxAugv2.RandomColor(),
+            bboxAugv2.RandomChanels(),
+            bboxAugv2.RandomNoise(),
+            bboxAugv2.RandomBlur(),
+            bboxAugv2.RandomRotate(),
+            bboxAugv2.RandomAffine(),
+
+            bboxAugv2.RandomDropPixelV2(),
+            # bboxAugv2.RandomCutMixV2(),
+            bboxAugv2.RandomMosaic(),
+            # random.choice([bboxAugv2.RandomCutMixV2(),bboxAugv2.RandomMosaic()]),
+
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
+    elif mode == 2:# 不推荐
+        return bboxAug.Compose([
+            # bboxAug.RandomChoice(),
+            bboxAug.RandomHorizontalFlip(),
+            bboxAug.RandomBrightness(),
+            bboxAug.RandomBlur(),
+            bboxAug.RandomSaturation(),
+            bboxAug.RandomHue(),
+            bboxAug.RandomRotate(angle=5),
+            # bboxAug.RandomTranslate(), # 有问题
+            # bboxAug.Augment(False),
+            bboxAug.Pad(),
+            bboxAug.Resize((416,416), False),
+            # bboxAug.ResizeMinMax(600,1000),
+            # bboxAug.ResizeFixAndPad(),
+            # bboxAug.RandomHSV(),
+            bboxAug.RandomCutout(),
+            bboxAug.ToTensor(),  # PIL --> tensor
+            # bboxAug.Normalize() # tensor --> tensor
+        ])
+
 class Datas_Resize:
     def __init__(self,isTrain=False,trainDP=None,testDP=None,predDP=None,
                  typeOfData="PennFudanDataset",classes=[],
