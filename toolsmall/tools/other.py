@@ -570,7 +570,8 @@ def proposal2GTMask(gt_mask,proposal,outsize=(14,14)):
 
     """
     target_mask = roi_align(gt_mask, proposal, outsize, 1.0)
-    return target_mask#.byte().float()
+    # return target_mask.byte().float()
+    return target_mask.ceil().float().clamp(0.,1.)
 
 # https://github.com/matterport/Mask_RCNN/blob/master/mrcnn/utils.py#L560
 def unmold_mask(mask, bbox, image_shape,origin_shape=None):
@@ -579,19 +580,22 @@ def unmold_mask(mask, bbox, image_shape,origin_shape=None):
     mask: [height, width] of type float. A small, typically 28x28 mask. 已使用过 sigmoid()
     bbox: [y1, x1, y2, x2]. The box to fit the mask in.
     Returns a binary mask with the same size as the original image.
+
+    如果是 二值 如：0,1 使用 "nearest"插值
+    如果是 连续值 如：0.0～1.0 or 0,1,2...,255 使用 "bilinear"插值
     """
-    # threshold = 0.5
-    # mask = mask >= threshold
+    threshold = 0.5
+    mask = mask >= threshold
 
     x1, y1, x2, y2 = bbox
-    mask = misc_nn_ops.interpolate(mask[None,None].float(), size=(y2 - y1, x2 - x1), mode="nearest")[0,0].byte()
+    mask = misc_nn_ops.interpolate(mask[None,None].float(), size=(y2 - y1, x2 - x1), mode="nearest")[0,0]#.byte()
 
     # Put the mask in the right location.
     full_mask = torch.zeros(image_shape, dtype=torch.bool,device=mask.device)
     full_mask[y1:y2, x1:x2] = mask
 
     if origin_shape is not None:
-        full_mask = misc_nn_ops.interpolate(full_mask[None,None].float(), size=origin_shape, mode="nearest")[0,0].byte()
+        full_mask = misc_nn_ops.interpolate(full_mask[None,None].float(), size=origin_shape, mode="nearest")[0,0]#.byte()
 
     return full_mask
 
