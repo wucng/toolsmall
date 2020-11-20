@@ -10,8 +10,8 @@ import os
 
 """传统的GAN loss更新"""
 def _train(self,epoch,lossFunc="bce",condition=False,noise="uniform"):
-    assert lossFunc in ["mse_loss","smooth_l1_loss","wganloss","bce","other"]
-    assert noise in ["uniform","rand","randn"]
+    assert lossFunc in ["bce","mse_loss","smooth_l1_loss","wganloss","wganloss_gp","other"]
+    assert noise in ["uniform","randn","rand"]
 
     self.G.train()
     self.D.train()
@@ -41,8 +41,8 @@ def _train(self,epoch,lossFunc="bce",condition=False,noise="uniform"):
             d_loss = F.binary_cross_entropy(d_real.sigmoid(),torch.ones_like(d_real),reduction=self.reduction)+\
                         F.binary_cross_entropy(d_fake.sigmoid(),torch.zeros_like(d_real),reduction=self.reduction)
         elif lossFunc=="wganloss":
-        #     d_loss = d_fake.mean() - d_real.mean()
-        # elif wganloss_gp:
+            d_loss = d_fake.mean() - d_real.mean()
+        elif lossFunc=="wganloss_gp":
             d_loss = d_fake.mean() - d_real.mean()
 
             alpha = torch.rand(data.shape).to(self.device)
@@ -86,6 +86,8 @@ def _train(self,epoch,lossFunc="bce",condition=False,noise="uniform"):
         elif lossFunc == "other":
             # g_loss = 1.0/g_real.exp().mean()
             g_loss = -g_real.sigmoid().log().mean()
+
+        g_loss = g_loss+0.5*F.mse_loss(fake,data,reduction=self.reduction)
 
         self.G_opt.zero_grad()
         g_loss.backward()
