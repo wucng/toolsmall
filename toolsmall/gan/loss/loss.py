@@ -104,6 +104,7 @@ def _train(self,epoch,lossFunc="bce",condition=False,noise="uniform"):
 def _predict(self,condition=False,noise="uniform"):
     assert noise in ["uniform", "rand", "randn"]
     self.G.eval()
+    self.D.eval()
     with torch.no_grad():
         labels = torch.randint(0, self.num_classes, [64], dtype=torch.long, device=self.device)
 
@@ -116,6 +117,12 @@ def _predict(self,condition=False,noise="uniform"):
             fixed_noise = torch.from_numpy(np.random.uniform(-1,1,[64,self.nz, 1, 1]).astype(np.float32)).to(self.device)
 
         decode = self.G(fixed_noise,labels if condition else None)
+
+        if not condition:
+            pred = self.D(decode,labels if condition else None)
+            pred = torch.sigmoid(pred).squeeze().round()
+            acc = (pred == torch.ones_like(pred)).sum().float()/pred.size(0)
+            print("acc:",acc)
 
         # decode得到的图片
         decode = torch.clamp(decode * 255, 0, 255)  # 对应0~1
