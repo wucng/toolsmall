@@ -29,11 +29,11 @@ def run_seq():
             #
             # Apply the following augmenters to most images.
             #
-            iaa.Fliplr(0.5),  # horizontally flip 50% of all images
+            # iaa.Fliplr(0.5),  # horizontally flip 50% of all images
             # iaa.Flipud(0.2),  # vertically flip 20% of all images
 
             # crop some of the images by 0-10% of their height/width
-            sometimes(iaa.Crop(percent=(0, 0.1))),
+            # sometimes(iaa.Crop(percent=(0, 0.1))),
             # sometimes(iaa.Crop(percent=(0, 0.05))),
 
             # Apply affine transformations to some of the images
@@ -55,8 +55,9 @@ def run_seq():
                 # shear=(-16, 16),
                 shear=(-5, 5),
                 order=[0, 1],
-                cval=(0, 255),
-                mode=ia.ALL
+                # cval=(0, 255),
+                cval= 144, # 填充像素值
+                # mode=ia.ALL # 默认常数值填充边界
             )),
 
             #
@@ -172,8 +173,8 @@ def run_seq2():
     #     images=[images]
     # sometimes = lambda aug: iaa.Sometimes(0.5, aug)
     seq = iaa.Sequential([
-        iaa.Fliplr(0.5),  # horizontal flips
-        iaa.Crop(percent=(0, 0.1)),  # random crops
+        # iaa.Fliplr(0.5),  # horizontal flips
+        # iaa.Crop(percent=(0, 0.1)),  # random crops
         # iaa.Crop(percent=(0, 0.05)),
         # Small gaussian blur with random sigma between 0 and 0.5.
         # But we only blur about 50% of all images.
@@ -201,7 +202,9 @@ def run_seq2():
             translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
             rotate=(-5, 5),
             # rotate=(-25, 25),
-            shear=(-5, 5)
+            shear=(-5, 5),
+            order=[0, 1],
+            cval=144,  # 填充像素值
         ))
 
     ], random_order=True)  # apply augmenters in random order

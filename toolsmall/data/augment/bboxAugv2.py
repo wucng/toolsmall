@@ -820,9 +820,9 @@ def mosaicFourImg(self,idx,alpha=0.5):
         h4, w4, _ = img4.shape
 
         height = min((h1, h2, h3, h4))
-        width = min((w1, w2, w3, h4))
+        width = min((w1, w2, w3, w4))
         # height = max((h1, h2, h3, h4))
-        # width = max((w1, w2, w3, h4))
+        # width = max((w1, w2, w3, w4))
 
 
         newImg = np.zeros((height,width,channel),img.dtype)
