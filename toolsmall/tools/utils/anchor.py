@@ -80,6 +80,20 @@ def getAnchors_FPN(heatMap_shape=((112,144),(56,72),(28,36),(14,18),(7,9)),strid
     return np.concatenate(anchor_fpn,0)
 
 
+def getAnchors_FPNV2(resize=[320,320],stride=(4,8,16,32,64),
+                   anchor_size=((32,),(64,),(128,),(256,),(512,)),aspect_ratios=(0.5,1.0,2.0),
+                   use_cell_center=False,fixsize=False):
+    heatMap_shape = [[resize[0]//s,resize[1]//s] for s in stride]
+    nums_ht = len(anchor_size)
+    anchor_fpn = []
+    for i in range(nums_ht):
+        anchor_fpn.append(getAnchors(heatMap_shape[i],stride[i],anchor_size[i],
+                                     aspect_ratios,use_cell_center,fixsize))
+
+    return np.concatenate(anchor_fpn,0)
+
+
+
 # ---------ssd anchor------------------------------------------------------
 # [x1,y1,x2,y2]格式 缩放到0~1
 def getAnchorsV2_s(resize=[320,320],stride=16,scales=[128,256,512],ratios=[0.5,1,2]):

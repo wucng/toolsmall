@@ -208,6 +208,206 @@ def mosaic(self,index): # 会变成固定 h:w =1:1
         return img, boxes, labels, img_path
 
 
+
+def box_candidates(box1, box2, wh_thr=2, ar_thr=20, area_thr=0.1, eps=1e-16):  # box1(4,n), box2(4,n)
+    # Compute candidate boxes: box1 before augment, box2 after augment, wh_thr (pixels), aspect_ratio_thr, area_ratio
+    w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
+    w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
+    ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))  # aspect ratio
+    return (w2 > wh_thr) & (h2 > wh_thr) & (w2 * h2 / (w1 * h1 + eps) > area_thr) & (ar < ar_thr)  # candidates
+
+
+def random_perspective(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0, border=(0, 0)):
+    # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
+    # targets = [cls, xyxy]
+
+    height = img.shape[0] + border[0] * 2  # shape(h,w,c)
+    width = img.shape[1] + border[1] * 2
+
+    # Center
+    C = np.eye(3)
+    C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
+    C[1, 2] = -img.shape[0] / 2  # y translation (pixels)
+
+    # Perspective
+    P = np.eye(3)
+    P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
+    P[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
+
+    # Rotation and Scale
+    R = np.eye(3)
+    a = random.uniform(-degrees, degrees)
+    # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+    s = random.uniform(1 - scale, 1 + scale)
+    # s = 2 ** random.uniform(-scale, scale)
+    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+
+    # Shear
+    S = np.eye(3)
+    S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
+    S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
+
+    # Translation
+    T = np.eye(3)
+    T[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
+    T[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
+
+    # Combined rotation matrix
+    M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
+    if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
+        if perspective:
+            img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
+        else:  # affine
+            img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+
+    # Visualize
+    # import matplotlib.pyplot as plt
+    # ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
+    # ax[0].imshow(img[:, :, ::-1])  # base
+    # ax[1].imshow(img2[:, :, ::-1])  # warped
+
+    # Transform label coordinates
+    n = len(targets)
+    if n:
+        # warp points
+        xy = np.ones((n * 4, 3))
+        xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
+        xy = xy @ M.T  # transform
+        if perspective:
+            xy = (xy[:, :2] / xy[:, 2:3]).reshape(n, 8)  # rescale
+        else:  # affine
+            xy = xy[:, :2].reshape(n, 8)
+
+        # create new boxes
+        x = xy[:, [0, 2, 4, 6]]
+        y = xy[:, [1, 3, 5, 7]]
+        xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+
+        # # apply angle-based reduction of bounding boxes
+        # radians = a * math.pi / 180
+        # reduction = max(abs(math.sin(radians)), abs(math.cos(radians))) ** 0.5
+        # x = (xy[:, 2] + xy[:, 0]) / 2
+        # y = (xy[:, 3] + xy[:, 1]) / 2
+        # w = (xy[:, 2] - xy[:, 0]) * reduction
+        # h = (xy[:, 3] - xy[:, 1]) * reduction
+        # xy = np.concatenate((x - w / 2, y - h / 2, x + w / 2, y + h / 2)).reshape(4, n).T
+
+        # clip boxes
+        xy[:, [0, 2]] = xy[:, [0, 2]].clip(0, width)
+        xy[:, [1, 3]] = xy[:, [1, 3]].clip(0, height)
+
+        # filter candidates
+        i = box_candidates(box1=targets[:, 1:5].T * s, box2=xy.T)
+        targets = targets[i]
+        targets[:, 1:5] = xy[i]
+
+    return img, targets
+
+
+
+def mosaic9(self, index):
+    # loads images in a 9-mosaic
+    self.hyp={
+        'degrees': 1.98 * 0,  # image rotation (+/- deg)
+        'translate': 0.05 * 0,  # image translation (+/- fraction)
+        'scale': 0.05 * 0,  # image scale (+/- gain)
+        'perspective': 0.0,#(0, 0.0, 0.001),  # image perspective (+/- fraction), range 0-0.001
+        'shear': 0.641 * 0}  # image shear (+/- deg)
+
+    # Update mosaic border
+    # b = int(random.uniform(0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
+    # mosaic_border = [b - imgsz, -b]  # height, width borders
+    mosaic_border = [0,0]
+
+    img, _, _, img_path = self.load(index)
+
+    labels9 = []
+    s = max(img.shape[:2])
+    # indices = [index] + [self.indices[random.randint(0, self.n - 1)] for _ in range(8)]  # 8 additional image indices
+    indices = [index] + [random.randint(0, self.__len__() - 1) for _ in range(8)]  # 3 additional image indices
+    for i, index in enumerate(indices):
+        # Load image
+        img, boxes, labels, _ = self.load(index)
+        h, w = img.shape[:2]
+        labels = torch.cat((labels.float().unsqueeze(-1), boxes), -1).numpy()
+
+        # place img in img9
+        if i == 0:  # center
+            img9 = np.full((s * 3, s * 3, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+            h0, w0 = h, w
+            c = s, s, s + w, s + h  # xmin, ymin, xmax, ymax (base) coordinates
+        elif i == 1:  # top
+            c = s, s - h, s + w, s
+        elif i == 2:  # top right
+            c = s + wp, s - h, s + wp + w, s
+        elif i == 3:  # right
+            c = s + w0, s, s + w0 + w, s + h
+        elif i == 4:  # bottom right
+            c = s + w0, s + hp, s + w0 + w, s + hp + h
+        elif i == 5:  # bottom
+            c = s + w0 - w, s + h0, s + w0, s + h0 + h
+        elif i == 6:  # bottom left
+            c = s + w0 - wp - w, s + h0, s + w0 - wp, s + h0 + h
+        elif i == 7:  # left
+            c = s - w, s + h0 - h, s, s + h0
+        elif i == 8:  # top left
+            c = s - w, s + h0 - hp - h, s, s + h0 - hp
+
+        padx, pady = c[:2]
+        x1, y1, x2, y2 = [max(x, 0) for x in c]  # allocate coords
+
+        # Labels
+        x = labels#[index]
+        _labels = x.copy()
+        if x.size > 0:  # Normalized xywh to pixel xyxy format
+            # _labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padx
+            # _labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + pady
+            # _labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padx
+            # _labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + pady
+
+            _labels[:, 1] = x[:,1] + padx
+            _labels[:, 2] = x[:, 2] + pady
+            _labels[:, 3] = x[:, 3] + padx
+            _labels[:, 4] = x[:, 4] + pady
+
+        labels9.append(_labels)
+
+        # Image
+        img9[y1:y2, x1:x2] = img[y1 - pady:, x1 - padx:]  # img9[ymin:ymax, xmin:xmax]
+        hp, wp = h, w  # height, width previous
+
+    # Offset
+    yc, xc = [int(random.uniform(0, s)) for x in mosaic_border]  # mosaic center x, y
+    img9 = img9[yc:yc + 2 * s, xc:xc + 2 * s]
+
+    # Concat/clip labels
+    if len(labels9):
+        labels9 = np.concatenate(labels9, 0)
+        labels9[:, [1, 3]] -= xc
+        labels9[:, [2, 4]] -= yc
+
+        np.clip(labels9[:, 1:], 0, 2 * s, out=labels9[:, 1:])  # use with random_perspective
+        # img9, labels9 = replicate(img9, labels9)  # replicate
+
+    # Augment
+    img9, labels9 = random_perspective(img9, labels9,
+                                       degrees=self.hyp['degrees'],
+                                       translate=self.hyp['translate'],
+                                       scale=self.hyp['scale'],
+                                       shear=self.hyp['shear'],
+                                       perspective=self.hyp['perspective'],
+                                       border=mosaic_border)  # border to remove
+
+    if len(labels9)>0:
+        boxes = torch.tensor(labels9[:,1:]).float()
+        labels = torch.as_tensor(labels9[:,0], dtype=torch.long)
+
+        return img9,boxes,labels,img_path
+    else:
+        img, boxes, labels, img_path = self.load(index)
+        return img, boxes, labels, img_path
+
+
 """过滤掉很小的框"""
 def filter(target,imgSize=(),minhw=20):
     h,w = imgSize
@@ -225,6 +425,7 @@ def filter(target,imgSize=(),minhw=20):
         return None
 
     return target
+
 
 # 4张图片做 mosaic
 def mosaicFourImg(self,idx,alpha=0.5):
@@ -329,6 +530,152 @@ def mosaicFourImg(self,idx,alpha=0.5):
         img,  boxes, labels, img_path = self.load(idx)
         return img,  boxes, labels, img_path
 
+
+def filterByCenter(boxes,rect=[]):
+    """
+    丢弃任何中心不在裁剪图像中的框
+    :param boxes: np.array [m,4] [x1,y1,x2,y2]
+    :param rect: [x1,y1,x2,y2]
+    :return:
+    """
+    x1, y1, x2, y2 = rect
+    # 计算中心点
+    ct = 0.5*(boxes[:,2:]+boxes[:,:2])
+    keep=[]
+    for i,box in enumerate(ct):
+        x,y = box
+        if x>x1 and x<x2 and y>y1 and y<y2:
+            keep.append(i)
+
+    return keep
+
+# 4张图片做 mosaic
+def mosaicFourImgV2(self,idx,alpha=0.5):
+    try:
+        _boxes = []
+        _labels = []
+
+        index = torch.randperm(self.__len__()).tolist()
+        if idx + 3 >= self.__len__():
+            idx = 0
+
+        idx2 = index[idx + 1]
+        idx3 = index[idx + 2]
+        idx4 = index[idx + 3]
+
+        img,  boxes, labels, img_path = self.load(idx)
+        img2,  boxes2, labels2, _ = self.load(idx2)
+        img3,  boxes3, labels3, _ = self.load(idx3)
+        img4,  boxes4, labels4, _ = self.load(idx4)
+
+        boxes, labels = boxes.numpy(), labels.numpy()
+        boxes2, labels2 = boxes2.numpy(), labels2.numpy()
+        boxes3, labels3 = boxes3.numpy(), labels3.numpy()
+        boxes4, labels4 = boxes4.numpy(), labels4.numpy()
+
+
+        h1, w1, channel = img.shape
+        h2, w2, _ = img2.shape
+        h3, w3, _ = img3.shape
+        h4, w4, _ = img4.shape
+
+        height = min((h1, h2, h3, h4))
+        width = min((w1, w2, w3, w4))
+        # height = max((h1, h2, h3, h4))
+        # width = max((w1, w2, w3, w4))
+
+
+        newImg = np.ones((height,width,channel),img.dtype)*114.0
+        cy, cx = height // 2, width // 2
+
+        x = random.randint(cx * (1 - alpha), cx * (1 + alpha))
+        y = random.randint(cy * (1 - alpha), cy * (1 + alpha))
+
+        # 左上角
+        y1 = random.randint(0, h1 - y)
+        x1 = random.randint(0, w1 - x)
+        newImg[0:y, 0:x] = img[y1:y1 + y, x1:x1 + x]
+        tboxes = boxes.copy()
+        # 丢弃任何中心不在裁剪图像中的框
+        keep=filterByCenter(tboxes,[x1,y1,x1+x,y1+y])
+        if len(keep)>0:
+            keep = np.array(keep,np.int)
+            tboxes = tboxes[keep]
+            labels = labels[keep]
+            tboxes[..., [0, 2]] = tboxes[..., [0, 2]].clip(x1, x1 + x) - x1
+            tboxes[..., [1, 3]] = tboxes[..., [1, 3]].clip(y1, y1 + y) - y1
+            _boxes.extend(tboxes)
+            _labels.extend(labels)
+
+        # 右上角
+        y1 = random.randint(0, h2 - y)
+        x1 = random.randint(0, w2+x-width)
+        newImg[0:y, x:width] = img2[y1:y1 + y, x1:x1 + width - x]
+        tboxes = boxes2.copy()
+        # 丢弃任何中心不在裁剪图像中的框
+        keep = filterByCenter(tboxes, [x1, y1, x1 + width - x, y1 + y])
+        if len(keep) > 0:
+            keep = np.array(keep, np.int)
+            tboxes = tboxes[keep]
+            labels2 = labels2[keep]
+            tboxes[..., [0, 2]] = tboxes[..., [0, 2]].clip(x1, x1 + width - x) - x1 + x
+            tboxes[..., [1, 3]] = tboxes[..., [1, 3]].clip(y1, y1 + y) - y1
+
+            _boxes.extend(tboxes)
+            _labels.extend(labels2)
+
+        # 右下角
+        y1 = random.randint(0, h3+y-height)
+        x1 = random.randint(0, w3+x-width)
+        newImg[y:height, x:width] = img3[y1:y1 + height - y, x1:x1 + width - x]
+        tboxes = boxes3.copy()
+
+        # 丢弃任何中心不在裁剪图像中的框
+        keep = filterByCenter(tboxes, [x1, y1, x1 + width - x,y1 + height - y])
+        if len(keep) > 0:
+            keep = np.array(keep, np.int)
+            tboxes = tboxes[keep]
+            labels3 = labels3[keep]
+            tboxes[..., [0, 2]] = tboxes[..., [0, 2]].clip(x1, x1 + width - x) - x1 + x
+            tboxes[..., [1, 3]] = tboxes[..., [1, 3]].clip(y1, y1 + height - y) - y1 + y
+
+            _boxes.extend(tboxes)
+            _labels.extend(labels3)
+
+        # 左下角
+        y1 = random.randint(0, h4+y-height)
+        x1 = random.randint(0, w4-x)
+        newImg[y:height, 0:x] = img4[y1:y1 + height - y, x1:x1 + x]
+        tboxes = boxes4.copy()
+        # 丢弃任何中心不在裁剪图像中的框
+        keep = filterByCenter(tboxes, [x1, y1, x1 + x, y1 + height - y])
+        if len(keep) > 0:
+            keep = np.array(keep, np.int)
+            tboxes = tboxes[keep]
+            labels4 = labels4[keep]
+            tboxes[..., [0, 2]] = tboxes[..., [0, 2]].clip(x1, x1 + x) - x1
+            tboxes[..., [1, 3]] = tboxes[..., [1, 3]].clip(y1, y1 + height - y) - y1 + y
+
+            _boxes.extend(tboxes)
+            _labels.extend(labels4)
+
+        if len(_boxes)==0:
+            img, boxes, labels, img_path = self.load(idx)
+            return img, boxes, labels, img_path
+        else:
+            target = {}
+
+            target["boxes"] = torch.from_numpy(np.asarray(_boxes)).float()
+            target["labels"] = torch.tensor(_labels)
+
+            img = newImg
+            boxes = target["boxes"]
+            labels = target["labels"]
+
+            return img,  boxes, labels, img_path
+    except:
+        img,  boxes, labels, img_path = self.load(idx)
+        return img,  boxes, labels, img_path
 
 class ResizeMinMax(object):
     """按最小边填充"""
@@ -607,8 +954,11 @@ class Resize(object):
             target["boxes"] = boxes
 
         if "masks" in target and target["masks"] is not None:
+            # target["masks"] = torch.nn.functional.interpolate(target["masks"][None].float(),
+            #                                           size=(new_h,new_w), mode="nearest")[0]#.byte().permute(1,2,0)
             target["masks"] = torch.nn.functional.interpolate(target["masks"][None].float(),
-                                                      size=(new_h,new_w), mode="nearest")[0]#.byte().permute(1,2,0)
+                                                              recompute_scale_factor=True,
+                                                              scale_factor=scale, mode="nearest")[0]
 
 
         if "keypoints" in target:
@@ -911,3 +1261,190 @@ class Augment(object):
         except:
             pass
         return image,target
+
+
+# --------------------------------------ssd-----------------------------------------
+from .ssd_utils import calc_iou_tensor
+import torchvision.transforms as t
+class ColorJitter(object):
+    """对图像颜色信息进行随机调整,该方法应放在ToTensor前"""
+    def __init__(self, brightness=0.125, contrast=0.5, saturation=0.5, hue=0.05):
+        self.trans = t.ColorJitter(brightness, contrast, saturation, hue)
+
+    def __call__(self, image, target):
+        image = self.trans(image)
+        return image, target
+
+# This function is from https://github.com/chauhan-utk/ssd.DomainAdaptation.
+class SSDCropping(object):
+    """
+    根据原文，对图像进行裁剪,该方法应放在ToTensor前
+    Cropping for SSD, according to original paper
+    Choose between following 3 conditions:
+    1. Preserve the original image
+    2. Random crop minimum IoU is among 0.1, 0.3, 0.5, 0.7, 0.9
+    3. Random crop
+    Reference to https://github.com/chauhan-utk/src.DomainAdaptation
+    """
+    def __init__(self):
+        self.sample_options = (
+            # Do nothing
+            None,
+            # min IoU, max IoU
+            (0.1, None),
+            (0.3, None),
+            (0.5, None),
+            (0.7, None),
+            (0.9, None),
+            # no IoU requirements
+            (None, None),
+        )
+
+    def __call__(self, image, target):
+        # Ensure always return cropped image
+        while True:
+            mode = random.choice(self.sample_options)
+            if mode is None:  # 不做随机裁剪处理
+                return image, target
+
+            # htot, wtot = target['height_width']
+            htot, wtot = image.size[::-1]
+
+            min_iou, max_iou = mode
+            min_iou = float('-inf') if min_iou is None else min_iou
+            max_iou = float('+inf') if max_iou is None else max_iou
+
+            # Implementation use 5 iteration to find possible candidate
+            for _ in range(5):
+                # 0.3*0.3 approx. 0.1
+                w = random.uniform(0.3, 1.0)
+                h = random.uniform(0.3, 1.0)
+
+                if w/h < 0.5 or w/h > 2:  # 保证宽高比例在0.5-2之间
+                    continue
+
+                # left 0 ~ wtot - w, top 0 ~ htot - h
+                left = random.uniform(0, 1.0 - w)
+                top = random.uniform(0, 1.0 - h)
+
+                right = left + w
+                bottom = top + h
+
+                # boxes的坐标是在0-1之间的
+                bboxes = target["boxes"]/torch.tensor([[wtot,htot,wtot,htot]],dtype=torch.float32)
+                ious = calc_iou_tensor(bboxes, torch.tensor([[left, top, right, bottom]]))
+
+
+                # tailor all the bboxes and return
+                # all(): Returns True if all elements in the tensor are True, False otherwise.
+                if not ((ious > min_iou) & (ious < max_iou)).all():
+                    continue
+
+                # discard any bboxes whose center not in the cropped image
+                # 丢弃任何中心不在裁剪图像中的框
+                xc = 0.5 * (bboxes[:, 0] + bboxes[:, 2])
+                yc = 0.5 * (bboxes[:, 1] + bboxes[:, 3])
+
+                # 查找所有的gt box的中心点有没有在采样patch中的
+                masks = (xc > left) & (xc < right) & (yc > top) & (yc < bottom)
+
+                # if no such boxes, continue searching again
+                # 如果所有的gt box的中心点都不在采样的patch中，则重新找
+                if not masks.any():
+                    continue
+
+                # 修改采样patch中的所有gt box的坐标（防止出现越界的情况）
+                bboxes[bboxes[:, 0] < left, 0] = left
+                bboxes[bboxes[:, 1] < top, 1] = top
+                bboxes[bboxes[:, 2] > right, 2] = right
+                bboxes[bboxes[:, 3] > bottom, 3] = bottom
+
+                # 虑除不在采样patch中的gt box
+                bboxes = bboxes[masks, :]
+                # 获取在采样patch中的gt box的标签
+                labels = target['labels']
+                labels = labels[masks]
+
+                # 裁剪patch
+                left_idx = int(left * wtot)
+                top_idx = int(top * htot)
+                right_idx = int(right * wtot)
+                bottom_idx = int(bottom * htot)
+                image = image.crop((left_idx, top_idx, right_idx, bottom_idx))
+
+                # 调整裁剪后的bboxes坐标信息
+                bboxes[:, 0] = (bboxes[:, 0] - left) / w
+                bboxes[:, 1] = (bboxes[:, 1] - top) / h
+                bboxes[:, 2] = (bboxes[:, 2] - left) / w
+                bboxes[:, 3] = (bboxes[:, 3] - top) / h
+
+                # 更新crop后的gt box坐标信息以及标签信息
+                target['boxes'] = bboxes*torch.tensor([[right_idx-left_idx, bottom_idx-top_idx,
+                                                        right_idx-left_idx, bottom_idx-top_idx]], dtype=torch.float32)
+                target['labels'] = labels
+
+                return image, target
+
+
+# -------------------------------------yolo-------------------------------------
+class Letterbox(object): # 未实现
+    """
+    将图片缩放调整到指定大小
+    :param img: 输入的图像numpy格式
+    :param new_shape: 输入网络的shape
+    :param color: padding用什么颜色填充
+    :param auto:
+    :param scale_fill: 简单粗暴缩放到指定大小
+    :param scale_up:  只缩小，不放大
+    :return:
+    """
+    def __init__(self,new_shape,
+                  color=(114, 114, 114),
+                  auto=True,
+                  scale_fill=False,
+                  scale_up=True):
+        if isinstance(new_shape,int):
+            new_shape=(new_shape,new_shape)
+        self.new_shape = new_shape
+        self.color = color
+        self.auto = auto
+        self.scale_fill = scale_fill
+        self.scale_up = scale_up
+
+    # def __call__(self, image, target):
+    def __call__(self, image):
+        img = np.array(image)
+        shape = img.shape[:2]  # [h, w]
+
+        # scale ratio (new / old)
+        r = min(self.new_shape[0] / shape[0], self.new_shape[1] / shape[1])
+        if not self.scale_up:  # only scale down, do not scale up (for better test mAP) 对于大于指定输入大小的图片进行缩放,小于的不变
+            r = min(r, 1.0)
+
+        # compute padding
+        ratio = r, r  # width, height ratios
+        new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+        dw, dh = self.new_shape[1] - new_unpad[0], self.new_shape[0] - new_unpad[1]  # wh padding
+        if self.auto:  # minimun rectangle 保证原图比例不变，将图像最大边缩放到指定大小
+            # 这里的取余操作可以保证padding后的图片是32的整数倍(416x416)，如果是(512x512)可以保证是64的整数倍
+            dw, dh = np.mod(dw, 64), np.mod(dh, 64)  # wh padding
+        elif self.scale_fill:  # stretch 简单粗暴的将图片缩放到指定尺寸
+            dw, dh = 0, 0
+            new_unpad = new_shape
+            ratio = self.new_shape[0] / shape[1], self.new_shape[1] / shape[0]  # wh ratios
+
+        dw /= 2  # divide padding into 2 sides 将padding分到上下，左右两侧
+        dh /= 2
+
+        # shape:[h, w]  new_unpad:[w, h]
+        if shape[::-1] != new_unpad:
+            img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))  # 计算上下两侧的padding
+        left, right = int(round(dw - 0.1)), int(round(dw + 0.1))  # 计算左右两侧的padding
+
+        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=self.color)  # add border
+
+        # target["boxes"] = target["boxes"]+torch.tensor([[top, bottom,top, bottom]],dtype=torch.float32)
+
+        return img, ratio, (dw, dh)
+        # return img, target

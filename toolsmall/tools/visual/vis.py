@@ -42,7 +42,7 @@ def vis_rect(img, pos,class_str="person",font_scale=0.35,label=1,colors=[],insid
     font = cv2.FONT_HERSHEY_SIMPLEX  # cv2.FONT_HERSHEY_PLAIN
     t_size = cv2.getTextSize(class_str, font, font_scale, 1)[0]
 
-    color = colors[label] if colors else colormap()[label].tolist()
+    color = colors[label] if colors else colormap()[label%78].tolist()
     cv2.rectangle(img, (c1[0], c1[1]), (c2[0], c2[1]), color, 2)
     if useMask:
         # mask

@@ -278,7 +278,7 @@ def draw_rect_mask(image, pred,classes=[],inside=False):
     bboxs = pred["boxes"]
     scores = pred["scores"]
     if "masks" in pred:
-        masks = pred["masks"]
+        masks = pred["masks"].squeeze()
     if "keypoints" in pred:
         keypoints = pred["keypoints"]
 
@@ -620,14 +620,14 @@ def unmold_maskV2(mask, bbox, image_shape,origin_shape=None):
     # mask = mask >= threshold
 
     x1, y1, x2, y2 = bbox
-    mask = misc_nn_ops.interpolate(mask[None,None].float(), size=(y2 - y1, x2 - x1), mode="bilinear")[0,0]#.byte()
+    mask = misc_nn_ops.interpolate(mask[None,None].float(), size=(y2 - y1, x2 - x1), mode="bilinear",align_corners=False)[0,0]#.byte()
 
     # Put the mask in the right location.
     full_mask = torch.zeros(image_shape, dtype=torch.float32,device=mask.device)
     full_mask[y1:y2, x1:x2] = mask
 
     if origin_shape is not None:
-        full_mask = misc_nn_ops.interpolate(full_mask[None,None].float(), size=origin_shape, mode="bilinear")[0,0]#.byte()
+        full_mask = misc_nn_ops.interpolate(full_mask[None,None].float(), size=origin_shape, mode="bilinear",align_corners=False)[0,0]#.byte()
 
     # return full_mask >= threshold
     return full_mask # 0.~1.

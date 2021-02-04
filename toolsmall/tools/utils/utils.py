@@ -141,6 +141,17 @@ def reduce_dict(input_dict, average=True):
         reduced_dict = {k: v for k, v in zip(names, values)}
     return reduced_dict
 
+def reduce_value(value, average=True):
+    world_size = get_world_size()
+    if world_size < 2:  # 单GPU的情况
+        return value
+
+    with torch.no_grad():
+        dist.all_reduce(value)
+        if average:
+            value /= world_size
+
+        return value
 
 class MetricLogger(object):
     def __init__(self, delimiter="\t"):
@@ -331,3 +342,7 @@ def init_distributed_mode(args):
                                          world_size=args.world_size, rank=args.rank)
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
+
+
+def cleanup():
+    dist.destroy_process_group()
