@@ -508,6 +508,9 @@ def train_one_epoch_cls(model, optimizer, data_loader, device, epoch, print_freq
 
     tarin_loss = total_loss / num_datas
     tarin_acc = (torch.eq(torch.tensor(preds), torch.tensor(trues)).sum().float() / num_datas).item()
+
+    print("\ntrain_loss:%.5f train_acc:%.5f\n"%(tarin_loss,tarin_acc))
+    
     return tarin_loss,tarin_acc
 
 
