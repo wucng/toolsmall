@@ -974,7 +974,7 @@ import imgaug as ia
 import imgaug.augmenters as iaa
 from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 
-def run_seq():
+def run_seq(use_affine=False):
     # Sometimes(0.5, ...) applies the given augmenter in 50% of all cases,
     # e.g. Sometimes(0.5, GaussianBlur(0.3)) would blur roughly every second
     # image.
@@ -1007,7 +1007,7 @@ def run_seq():
             # - cval: if the mode is constant, then use a random brightness
             #         for the newly created pixels (e.g. sometimes black,
             #         sometimes white)
-            sometimes(iaa.Affine(
+            iaa.Sometimes(0.5 if use_affine else 0.0,iaa.Affine(
                 scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
                 translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
                 # rotate=(-45, 45),
@@ -1127,7 +1127,7 @@ def run_seq():
 
     return seq
 
-def run_seq2():
+def run_seq2(use_affine=False):
 
     # if not isinstance(images,list):
     #     images=[images]
@@ -1156,7 +1156,7 @@ def run_seq2():
         iaa.Multiply((0.8, 1.2), per_channel=0.2),
         # Apply affine transformations to each image.
         # Scale/zoom them, translate/move them, rotate them and shear them.
-        iaa.Sometimes(0.5,
+        iaa.Sometimes(0.5 if use_affine else 0.0,
         iaa.Affine(
             scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
             translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
@@ -1174,7 +1174,7 @@ def run_seq2():
     return seq
 
 
-def simple_agu(image,target,seed=100,advanced=False,shape=(),last_class_id=True):
+def simple_agu(image,target,seed=100,use_affine=False,advanced=False,shape=(),last_class_id=True):
     """
     :param image:PIL image
     :param labels: [[x1,y1,x2,y2,class_id],[]]
@@ -1187,7 +1187,7 @@ def simple_agu(image,target,seed=100,advanced=False,shape=(),last_class_id=True)
     temp=[BoundingBox(*item[:-1],label=item[-1]) for item in labels]
     bbs=BoundingBoxesOnImage(temp,shape=image.shape)
 
-    seq=run_seq() if advanced else run_seq2()
+    seq=run_seq(use_affine) if advanced else run_seq2(use_affine)
     # seq=run_seq2()
 
     # Augment BBs and images.
@@ -1237,7 +1237,8 @@ def simple_agu(image,target,seed=100,advanced=False,shape=(),last_class_id=True)
     return image_aug,target
 
 class Augment(object):
-    def __init__(self,advanced=False):
+    def __init__(self,use_affine=False,advanced=False):
+        self.use_affine = use_affine
         self.advanced = advanced
     def __call__(self, image, target):
         """
@@ -1248,7 +1249,7 @@ class Augment(object):
                 target: Tensor
         """
         try:
-            _image, _target=simple_agu(image.copy(),target.copy(),np.random.randint(0, int(1e5), 1)[0],self.advanced)
+            _image, _target=simple_agu(image.copy(),target.copy(),np.random.randint(0, int(1e5), 1)[0],self.use_affine,self.advanced)
             if len(_target["boxes"])>0:
                 # clip to image
                 w,h=_image.size # PIL
@@ -1264,7 +1265,10 @@ class Augment(object):
 
 
 # --------------------------------------ssd-----------------------------------------
-from .ssd_utils import calc_iou_tensor
+try:
+    from .ssd_utils import calc_iou_tensor
+except:
+    from ssd_utils import calc_iou_tensor
 import torchvision.transforms as t
 class ColorJitter(object):
     """对图像颜色信息进行随机调整,该方法应放在ToTensor前"""

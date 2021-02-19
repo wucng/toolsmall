@@ -263,7 +263,7 @@ def test_data(data_path,img_size,classes,useMosaic,fixsize):
 
     transforms = Compose(
         [
-            # Augment(False),
+            Augment(True,True),
             # Pad(),
             # ToTensor(),
             # Resize(img_size),
