@@ -466,8 +466,10 @@ def mosaicFourImg(self,idx,alpha=0.5):
         newImg = np.ones((height,width,channel),img.dtype)*114.0
         cy, cx = height // 2, width // 2
 
-        x = random.randint(cx * (1 - alpha), cx * (1 + alpha))
-        y = random.randint(cy * (1 - alpha), cy * (1 + alpha))
+        # x = random.randint(cx * (1 - alpha), cx * (1 + alpha))
+        # y = random.randint(cy * (1 - alpha), cy * (1 + alpha))
+        x = random.randint(int(cx * (1 - alpha)), int(cx * (1 + alpha)))
+        y = random.randint(int(cy * (1 - alpha)), int(cy * (1 + alpha)))
 
         # 左上角
         y1 = random.randint(0, h1 - y)
@@ -519,16 +521,18 @@ def mosaicFourImg(self,idx,alpha=0.5):
 
         target = filter(target, (height, width))
         if target is None:
-            img,  boxes, labels, img_path = self.load(idx)
+            # img,  boxes, labels, img_path = self.load(idx)
+            return 0
         else:
             img = newImg
             boxes = target["boxes"]
             labels = target["labels"]
 
-        return img,  boxes, labels, img_path
+            return img,  boxes, labels, img_path
     except:
-        img,  boxes, labels, img_path = self.load(idx)
-        return img,  boxes, labels, img_path
+        # img,  boxes, labels, img_path = self.load(idx)
+        # return img,  boxes, labels, img_path
+        return 0
 
 
 def filterByCenter(boxes,rect=[]):
@@ -588,8 +592,10 @@ def mosaicFourImgV2(self,idx,alpha=0.5):
         newImg = np.ones((height,width,channel),img.dtype)*114.0
         cy, cx = height // 2, width // 2
 
-        x = random.randint(cx * (1 - alpha), cx * (1 + alpha))
-        y = random.randint(cy * (1 - alpha), cy * (1 + alpha))
+        # x = random.randint(cx * (1 - alpha), cx * (1 + alpha))
+        # y = random.randint(cy * (1 - alpha), cy * (1 + alpha))
+        x = random.randint(int(cx * (1 - alpha)), int(cx * (1 + alpha)))
+        y = random.randint(int(cy * (1 - alpha)), int(cy * (1 + alpha)))
 
         # 左上角
         y1 = random.randint(0, h1 - y)
@@ -660,8 +666,9 @@ def mosaicFourImgV2(self,idx,alpha=0.5):
             _labels.extend(labels4)
 
         if len(_boxes)==0:
-            img, boxes, labels, img_path = self.load(idx)
-            return img, boxes, labels, img_path
+            # img, boxes, labels, img_path = self.load(idx)
+            # return img, boxes, labels, img_path
+            return 0
         else:
             target = {}
 
@@ -674,8 +681,9 @@ def mosaicFourImgV2(self,idx,alpha=0.5):
 
             return img,  boxes, labels, img_path
     except:
-        img,  boxes, labels, img_path = self.load(idx)
-        return img,  boxes, labels, img_path
+        # img,  boxes, labels, img_path = self.load(idx)
+        # return img,  boxes, labels, img_path
+        return 0
 
 class ResizeMinMax(object):
     """按最小边填充"""
