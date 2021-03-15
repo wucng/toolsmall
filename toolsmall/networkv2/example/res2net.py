@@ -42,8 +42,8 @@ class BottleneckS1(nn.Module):
         x3 = self.conv3x3_2(x1+x2+x3)
         x4 = self.conv3x3_3(x1+x2+x3+x4)
 
-        _x = torch.cat((x1, x2, x3, x4), 1)
-        _x = channel_shuffle(_x,4)+_x
+        _x = torch.cat((x1, x2, x3, x4), 1)+_x
+        # _x = channel_shuffle(_x,4)
         _x = self.conv1x1_2(_x)
         _x = self.seblock(_x)
 
@@ -73,8 +73,8 @@ class BottleneckS1_DW(nn.Module):
         x3 = self.conv3x3_2(x2+x3)
         x4 = self.conv3x3_3(x3+x4)
 
-        _x = torch.cat((x1, x2, x3, x4), 1)
-        _x = channel_shuffle(_x,4)+_x
+        _x = torch.cat((x1, x2, x3, x4), 1)+_x
+        # _x = channel_shuffle(_x,4)
         _x = self.conv1x1_2(_x)
         _x = self.seblock(_x)
 
