@@ -9,6 +9,7 @@ import requests
 import torch
 import torch.nn as nn
 from PIL import Image
+from .common import CBAM
 
 
 # https://github.com/ultralytics/yolov5/blob/master/models/common.py
@@ -45,7 +46,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.cv2 = nn.Sequential(Conv(c_, c2, 3, 1, g=g),CBAM(c2,3,c2//4))
         self.add = shortcut and c1 == c2
 
     def forward(self, x):

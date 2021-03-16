@@ -453,16 +453,16 @@ def cross_entropy(preds,targets,reduction="mean"):
     else:
         return loss.sum()
 
-def cross_entropyV2(preds,targets,reduction="mean"):
+def cross_entropyV2(preds,targets,reduction="mean",alpha=0.5):
     num_classes = preds.size(-1)
     onehotLabel = torch.nn.functional.one_hot(targets, num_classes).float().to(preds.device)
     loss = -preds.log_softmax(1)*onehotLabel
     # 分错的loss
     loss2 = (preds.softmax(1)*(1-onehotLabel)).sum(1)
     if reduction=="mean":
-        return loss.mean()+0.5*loss2.mean()
+        return loss.mean()+alpha*loss2.mean()
     else:
-        return loss.sum()+0.5*loss2.mean()
+        return loss.sum()+alpha*loss2.mean()
 
 
 def cls_loss(loss_func,outputs,targets,use_focal_loss=False, smooth_label=False):
