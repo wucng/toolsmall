@@ -59,27 +59,37 @@ class DarknetBlockDW(nn.Module):
 class Darknet19(nn.Module):
     def __init__(self,in_c=3,num_classes=1000):
         super().__init__()
-        self.feature = nn.Sequential(
-            CBL(in_c,32,3),
-            nn.MaxPool2d(2,2),
+
+        self.stem = nn.Sequential(
+            CBL(in_c, 32, 3),
+            nn.MaxPool2d(2, 2),
             CBL(32, 64, 3),
             nn.MaxPool2d(2, 2),
+        )
+
+        self.layer1 = nn.Sequential(
             CBL(64, 128, 3),
             CBL(128, 64, 1),
             CBL(64, 128, 3),
+        )
 
+        self.layer2 = nn.Sequential(
             nn.MaxPool2d(2, 2),
             CBL(128, 256, 3),
             CBL(256, 128, 1),
             CBL(128, 256, 3),
+        )
 
+        self.layer3 = nn.Sequential(
             nn.MaxPool2d(2, 2),
             CBL(256, 512, 3),
             CBL(512, 256, 1),
             CBL(256, 512, 3),
             CBL(512, 256, 1),
             CBL(256, 512, 3),
+        )
 
+        self.layer4 = nn.Sequential(
             nn.MaxPool2d(2, 2),
             CBL(512, 1024, 3),
             CBL(1024, 512, 1),
@@ -91,10 +101,67 @@ class Darknet19(nn.Module):
         self.cls = Classify(1024,num_classes)
 
     def forward(self,x):
-        x = self.feature(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
         return x
 
+
+class Darknet19DW(nn.Module):
+    def __init__(self,in_c=3,num_classes=1000):
+        super().__init__()
+
+        self.stem = nn.Sequential(
+            CBL(in_c, 32, 3),
+            nn.MaxPool2d(2, 2),
+            CBL(32, 64, 3,groups=32),
+            nn.MaxPool2d(2, 2),
+        )
+
+        self.layer1 = nn.Sequential(
+            CBL(64, 128, 3,groups=32),
+            CBL(128, 64, 1),
+            CBL(64, 128, 3,groups=32),
+        )
+
+        self.layer2 = nn.Sequential(
+            nn.MaxPool2d(2, 2),
+            CBL(128, 256, 3,groups=64),
+            CBL(256, 128, 1),
+            CBL(128, 256, 3,groups=64),
+        )
+
+        self.layer3 = nn.Sequential(
+            nn.MaxPool2d(2, 2),
+            CBL(256, 512, 3,groups=128),
+            CBL(512, 256, 1),
+            CBL(256, 512, 3,groups=128),
+            CBL(512, 256, 1),
+            CBL(256, 512, 3,groups=128),
+        )
+
+        self.layer4 = nn.Sequential(
+            nn.MaxPool2d(2, 2),
+            CBL(512, 1024, 3,groups=256),
+            CBL(1024, 512, 1),
+            CBL(512, 1024, 3,groups=256),
+            CBL(1024, 512, 1),
+            CBL(512, 1024, 3,groups=256),
+        )
+
+        self.cls = Classify(1024,num_classes)
+
+    def forward(self,x):
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.cls(x)
+        return x
 
 class Darknet53(nn.Module):
     def __init__(self,in_c=3,num_classes=1000):
@@ -623,6 +690,109 @@ class Yolov4(nn.Module):
 
         return x3,x4,x5
 
+
+class Yolov4One(nn.Module):
+    def __init__(self,num_classes=21,num_anchor=3):
+        super().__init__()
+        # _m = CSPDarknet53()
+        # _m = Darknet37DW()
+        _m = Darknet19DW()
+        self.backbone=nn.Sequential(
+            *[_m.stem,_m.layer1,_m.layer2,_m.layer3,_m.layer4]
+        )
+
+        self.layer1 = nn.Sequential(
+            CBL(1024,512,1),
+            CBL(512,1024,3),
+            CBL(1024,512,1),
+            SPP(512,2048),
+            CBL(2048,512,1),
+            CBL(512,1024,3),
+            CBL(1024,512,1),
+        )
+
+        self.layer11 = nn.Sequential(
+            CBL(512, 256, 1),
+            nn.Upsample(scale_factor=2),
+
+            CBL(512, 512, 1),
+
+            CBL(768, 256, 1),
+            CBL(256, 512, 3),
+            CBL(512, 256, 1),
+            CBL(256, 512, 3),
+            CBL(512, 256, 1),
+        )
+
+        self.layer12 = nn.Sequential(
+            CBL(256, 128, 1),
+            nn.Upsample(scale_factor=2),
+
+            CBL(256, 256, 1),
+
+            CBL(384, 128, 1),
+            CBL(128, 256, 3),
+            CBL(256, 128, 1),
+            CBL(128, 256, 3),
+            CBL(256, 128, 1),
+        )
+
+        self.layer13 = nn.Sequential(
+            CBL(128, 256, 3),
+            nn.Conv2d(256, num_anchor * (num_classes + 5), 1)
+        )
+
+        # self.layer2 = nn.Sequential(
+        #     CBL(128, 128, 3,2,1),
+        #
+        #     CBL(384, 128, 1),
+        #     CBL(128, 256, 3),
+        #     CBL(256, 128, 1),
+        #     CBL(128, 256, 3),
+        #     CBL(256, 128, 1),
+        #
+        #     CBL(128, 256, 3),
+        #     nn.Conv2d(256, num_anchor * (num_classes + 5), 1)
+        # )
+        #
+        # self.layer3 = nn.Sequential(
+        #     CBL(128, 256, 3,2,1),
+        #
+        #     CBL(768,256,1),
+        #     CBL(256,512,3),
+        #     CBL(512,256,1),
+        #     CBL(256,512,3),
+        #     CBL(512, 256, 1),
+        #
+        #     CBL(256, 512, 3),
+        #     nn.Conv2d(512, num_anchor * (num_classes + 5), 1)
+        # )
+
+
+    def forward(self,x):
+        x = self.backbone[:2](x)
+        x3 = self.backbone[2](x)
+        x4 = self.backbone[3](x3)
+        x5 = self.backbone[4](x4)
+
+        _x5 = self.layer1(x5)
+
+        x4 = torch.cat((self.layer11[:2](_x5),self.layer11[2](x4)),1)
+        _x4 = self.layer11[3:](x4)
+
+        x3 = torch.cat((self.layer12[:2](_x4), self.layer12[2](x3)), 1)
+        _x3 = self.layer12[3:](x3)
+
+        x3 = self.layer13(_x3)
+
+        # x4 = torch.cat((self.layer2[0](_x3),_x4),1)
+        # _x4 = self.layer2[1:-2](x4)
+        # x4 = self.layer2[-2:](_x4)
+        #
+        # x5 = torch.cat((self.layer3[0](_x4), _x5), 1)
+        # x5 = self.layer3[1:](x5)
+
+        return x3#,x4,x5
 
 if __name__ == "__main__":
     x = torch.rand([2,3,224,224])

@@ -62,19 +62,30 @@ class TransitionLayer(nn.Sequential):
 class DensetNet(nn.Module):
     def __init__(self,in_c=3,num_classes=1000,nums=[6,12,24,16],channels=[64,128,256,512]):
         super().__init__()
-        self.feature = nn.Sequential(
-            OrderedDict([
-                ("stem",Stem(in_c,channels[0],7,2)),
-                ("layer1",nn.Sequential(DenseBlock(channels[0],channels[0],nums[0]))),
-                ("layer2",nn.Sequential(TransitionLayer(channels[0],channels[1]),DenseBlock(channels[1],channels[1],nums[1]))),
-                ("layer3",nn.Sequential(TransitionLayer(channels[1],channels[2]),DenseBlock(channels[2],channels[2],nums[2]))),
-                ("layer4",nn.Sequential(TransitionLayer(channels[2],channels[3]),DenseBlock(channels[3],channels[3],nums[3]))),
-            ]))
+        # self.feature = nn.Sequential(
+        #     OrderedDict([
+        #         ("stem",Stem(in_c,channels[0],7,2)),
+        #         ("layer1",nn.Sequential(DenseBlock(channels[0],channels[0],nums[0]))),
+        #         ("layer2",nn.Sequential(TransitionLayer(channels[0],channels[1]),DenseBlock(channels[1],channels[1],nums[1]))),
+        #         ("layer3",nn.Sequential(TransitionLayer(channels[1],channels[2]),DenseBlock(channels[2],channels[2],nums[2]))),
+        #         ("layer4",nn.Sequential(TransitionLayer(channels[2],channels[3]),DenseBlock(channels[3],channels[3],nums[3]))),
+        #     ]))
+
+        self.stem = Stem(in_c,channels[0],7,2)
+        self.layer1 = nn.Sequential(DenseBlock(channels[0],channels[0],nums[0]))
+        self.layer2 = nn.Sequential(TransitionLayer(channels[0],channels[1]),DenseBlock(channels[1],channels[1],nums[1]))
+        self.layer3 = nn.Sequential(TransitionLayer(channels[1],channels[2]),DenseBlock(channels[2],channels[2],nums[2]))
+        self.layer4 = nn.Sequential(TransitionLayer(channels[2],channels[3]),DenseBlock(channels[3],channels[3],nums[3]))
 
         self.cls = Classify(channels[-1],num_classes)
 
     def forward(self,x):
-        x = self.feature(x)
+        # x = self.feature(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
 
         return x
@@ -83,19 +94,21 @@ class DensetNet(nn.Module):
 class DensetNetDW(nn.Module):
     def __init__(self,in_c=3,num_classes=1000,nums=[6,12,24,16],channels=[64,128,256,512]):
         super().__init__()
-        self.feature = nn.Sequential(
-            OrderedDict([
-                ("stem",Stem(in_c,channels[0],7,2)),
-                ("layer1",nn.Sequential(DenseBlockDW(channels[0],channels[0],nums[0]))),
-                ("layer2",nn.Sequential(TransitionLayer(channels[0],channels[1]),DenseBlockDW(channels[1],channels[1],nums[1]))),
-                ("layer3",nn.Sequential(TransitionLayer(channels[1],channels[2]),DenseBlockDW(channels[2],channels[2],nums[2]))),
-                ("layer4",nn.Sequential(TransitionLayer(channels[2],channels[3]),DenseBlockDW(channels[3],channels[3],nums[3]))),
-            ]))
+        self.stem = Stem(in_c,channels[0],7,2)
+        self.layer1 = nn.Sequential(DenseBlockDW(channels[0],channels[0],nums[0]))
+        self.layer2 = nn.Sequential(TransitionLayer(channels[0],channels[1]),DenseBlockDW(channels[1],channels[1],nums[1]))
+        self.layer3 = nn.Sequential(TransitionLayer(channels[1],channels[2]),DenseBlockDW(channels[2],channels[2],nums[2]))
+        self.layer4 = nn.Sequential(TransitionLayer(channels[2],channels[3]),DenseBlockDW(channels[3],channels[3],nums[3]))
 
         self.cls = Classify(channels[-1],num_classes)
 
     def forward(self,x):
-        x = self.feature(x)
+        # x = self.feature(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
 
         return x

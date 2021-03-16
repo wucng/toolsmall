@@ -20,20 +20,25 @@ class CBR(nn.Module):
 class MobileNetV1(nn.Module):
     def __init__(self,in_c=3,num_classes=1000):
         super().__init__()
-        self.feature = nn.Sequential(
-            CBR(in_c,32,3,2),
-            CBR(32,32,3,groups=32),
+        self.stem = nn.Sequential(
+            CBR(in_c, 32, 3, 2),
+            CBR(32, 32, 3, groups=32),
             CBR(32, 64, 1),
-            CBR(64, 64, 3,2, groups=64),
+            CBR(64, 64, 3, 2, groups=64),
+        )
+        self.layer1 = nn.Sequential(
             CBR(64, 128, 1),
             CBR(128, 128, 3, groups=128),
             CBR(128, 128, 1),
-
+        )
+        self.layer2 = nn.Sequential(
             CBR(128, 128, 3, 2, groups=128),
             CBR(128, 256, 1),
             CBR(256, 256, 3, groups=256),
             CBR(256, 256, 1),
+        )
 
+        self.layer3 = nn.Sequential(
             CBR(256, 256, 3, 2, groups=256),
             CBR(256, 512, 1),
             CBR(512, 512, 3, groups=512),
@@ -46,7 +51,9 @@ class MobileNetV1(nn.Module):
             CBR(512, 512, 1),
             CBR(512, 512, 3, groups=512),
             CBR(512, 512, 1),
+        )
 
+        self.layer4 = nn.Sequential(
             CBR(512, 512, 3, 2, groups=512),
             CBR(512, 1024, 1),
             CBR(1024, 1024, 3, 1, groups=1024),
@@ -56,7 +63,11 @@ class MobileNetV1(nn.Module):
         self.cls = Classify(1024,num_classes)
 
     def forward(self,x):
-        x = self.feature(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
 
         return x
@@ -96,17 +107,21 @@ class Bottleneckv2(nn.Module):
 class MobileNetV2(nn.Module):
     def __init__(self,in_c=3,num_classes=1000):
         super().__init__()
-        self.feature = nn.Sequential(
-            CBR(in_c,32,3,2),
-            Bottleneckv2(32,32,16,3,1),
+        self.stem = nn.Sequential(
+            CBR(in_c, 32, 3, 2),
+            Bottleneckv2(32, 32, 16, 3, 1),
 
-            Bottleneckv2(16,16*6,24,3,2),
-            Bottleneckv2(24,24*6,24,3,1),
+            Bottleneckv2(16, 16 * 6, 24, 3, 2),
+        )
 
+        self.layer1 = Bottleneckv2(24,24*6,24,3,1)
+
+        self.layer2 = nn.Sequential(
             Bottleneckv2(24, 24 * 6, 32, 3, 2),
             Bottleneckv2(32, 32 * 6, 32, 3, 1),
             Bottleneckv2(32, 32 * 6, 32, 3, 1),
-
+        )
+        self.layer3 = nn.Sequential(
             Bottleneckv2(32, 32 * 6, 64, 3, 2),
             Bottleneckv2(64, 64 * 6, 64, 3, 1),
             Bottleneckv2(64, 64 * 6, 64, 3, 1),
@@ -115,6 +130,10 @@ class MobileNetV2(nn.Module):
             Bottleneckv2(64, 64 * 6, 96, 3, 1),
             Bottleneckv2(96, 96 * 6, 96, 3, 1),
             Bottleneckv2(96, 96 * 6, 96, 3, 1),
+        )
+
+
+        self.layer4 = nn.Sequential(
 
             Bottleneckv2(96, 96 * 6, 160, 3, 2),
             Bottleneckv2(160, 160 * 6, 160, 3, 1),
@@ -131,8 +150,13 @@ class MobileNetV2(nn.Module):
         )
 
     def forward(self,x):
-        x = self.feature(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
+
         return x
 
 
@@ -183,16 +207,25 @@ class BottleneckSE(nn.Module):
 class MobileNetV3(nn.Module):
     def __init__(self,in_c=3,num_classes=1000):
         super().__init__()
-        self.feature = nn.Sequential(
-            CBH(in_c,16,3,2),
-            BottleneckSE(16,16,16,3,2),
-            BottleneckSE(16,72,24,3,2),
-            BottleneckSE(24,88,24,3,1),
-            BottleneckSE(24,96,40,3,2),
-            BottleneckSE(40,240,40,3,1),
-            BottleneckSE(40,240,40,3,1),
-            BottleneckSE(40,120,48,3,1),
-            BottleneckSE(48,144,48,3,1),
+        self.layer1 = nn.Sequential(
+            CBH(in_c, 16, 3, 2),
+            BottleneckSE(16, 16, 16, 3, 2),
+        )
+
+        self.layer2 = nn.Sequential(
+            BottleneckSE(16, 72, 24, 3, 2),
+            BottleneckSE(24, 88, 24, 3, 1),
+        )
+
+        self.layer3 = nn.Sequential(
+            BottleneckSE(24, 96, 40, 3, 2),
+            BottleneckSE(40, 240, 40, 3, 1),
+            BottleneckSE(40, 240, 40, 3, 1),
+            BottleneckSE(40, 120, 48, 3, 1),
+            BottleneckSE(48, 144, 48, 3, 1),
+        )
+
+        self.layer4 = nn.Sequential(
             BottleneckSE(48,288,96,3,2),
             BottleneckSE(96,576,96,3,1),
             BottleneckSE(96,576,96,3,1),
@@ -208,8 +241,12 @@ class MobileNetV3(nn.Module):
         )
 
     def forward(self,x):
-        x = self.feature(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
         x = self.cls(x)
+
         return x
 
 
