@@ -135,13 +135,16 @@ class TwoMLPHead(nn.Module):
         else:
             # 使用1x1 卷积代替 FC层
             self.classifier = nn.Sequential(
-                nn.Conv2d(in_channel,256,1),
+                nn.Conv2d(in_channel,512,1),
+                nn.BatchNorm2d(512),
                 nn.ReLU(inplace=True),
 
-                nn.Conv2d(256,256,7,1,0),
+                nn.Conv2d(512,512,7,1,0),
+                nn.BatchNorm2d(512),
                 nn.ReLU(inplace=True),
 
-                nn.Conv2d(256, 4096, 1),
+                nn.Conv2d(512, 4096, 1),
+                nn.BatchNorm2d(4096),
                 nn.ReLU(inplace=True),
                 Flatten()
             )
@@ -180,13 +183,16 @@ class TwoMLPHead_rfcn(nn.Module):
         super().__init__()
 
         self.hideLayer = nn.Sequential(
-            nn.Conv2d(in_channel, 256, 1),
+            nn.Conv2d(in_channel, 512, 1),
+            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
 
-            nn.Conv2d(256, 256, 3, 1, 1),
+            nn.Conv2d(512, 512, 3, 1, 1),
+            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
 
-            nn.Conv2d(256, 4096, 1),
+            nn.Conv2d(512, 4096, 1),
+            nn.BatchNorm2d(4096),
             nn.ReLU(inplace=True),
         )
 
@@ -206,6 +212,9 @@ class TwoMLPHead_rfcn(nn.Module):
 class RFCNHead(nn.Module):
     def __init__(self,in_channel,stride=16,ksize=7,num_classes=21,use_RoIAlign=False,roi_out_size=7):
         super().__init__()
+        self.ksize = ksize
+        self.roi_out_size = roi_out_size
+        self.num_classes = num_classes
         self.twoMLPHead = TwoMLPHead_rfcn(in_channel,ksize,num_classes)
 
         if use_RoIAlign:
@@ -216,21 +225,22 @@ class RFCNHead(nn.Module):
             self.psroipooling = PSRoIPool(roi_out_size, 1.0 / stride)
 
         self.avgpool = nn.Sequential(
-            nn.AdaptiveMaxPool2d((1, 1)),
+            nn.AdaptiveAvgPool2d((1, 1)),
             Flatten()
         )
 
     def forward(self,feature,propose):
         rcnnHead_cls,rcnnHead_reg = self.twoMLPHead(feature)
 
-        # scores = self.roipooling(rcnnHead_cls,propose)
-        # bbox_deltas = self.roipooling(rcnnHead_reg,propose)
-        # scores = scores.contiguous().view(-1,rfcn_k*rfcn_k,num_classes,roi_output_size,roi_output_size).mean(1)
-        # bbox_deltas = bbox_deltas.contiguous().view(-1, rfcn_k * rfcn_k, num_classes * 4, roi_output_size,roi_output_size).mean(1)
-
+        """
+        scores = self.roipooling(rcnnHead_cls,propose)
+        bbox_deltas = self.roipooling(rcnnHead_reg,propose)
+        scores = F.max_pool2d(scores,self.roi_out_size,1).contiguous().view(-1,self.num_classes,self.ksize,self.ksize)
+        bbox_deltas = F.max_pool2d(bbox_deltas,self.roi_out_size,1).contiguous().view(-1,self.num_classes* 4,self.ksize,self.ksize)
+        """
         scores = self.psroipooling(rcnnHead_cls, propose)
         bbox_deltas = self.psroipooling(rcnnHead_reg, propose)
-
+        # """
         scores = self.avgpool(scores)
         bbox_deltas = self.avgpool(bbox_deltas)
 
